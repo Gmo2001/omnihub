@@ -35,7 +35,8 @@ async def analyze_file_content(content: str, file_metadata: FileSchema) -> dict:
     - `content`: 파일의 추출된 텍스트 전체
     - `file_metadata`: 파일 이름, MIME type, 소유자 정보 등 (Context 보강용)
 3.  **Output (Return Dict)**:
-    - 아래 형식을 지켜주세요 (Firestore 저장 스키마와 일치해야 함):
+    - 아래 형식을 참고해주세요 (Firestore 저장 스키마와 일치해야 함):
+    - 아래 형식외에 추가가 된다면 추후 말해주세요
       ```json
       {
         "virtual_path": "/부서/연도/카테고리",
@@ -49,8 +50,7 @@ async def analyze_file_content(content: str, file_metadata: FileSchema) -> dict:
 
 ## 3. 실행 방법
 1.  가상환경 활성화: `backend/.venv/Scripts/activate`
-2.  서버 실행: `uvicorn app.main:app --reload`
+2.  로컬 서버 실행: `uvicorn app.main:app --reload`
 3.  테스트:
     - 현재 웹훅이나 트리거가 없어도, `main.py`나 별도 테스트 스크립트에서 `analyze_file_content`를 직접 호출하여 테스트 가능합니다.
 
-잘 부탁드립니다!
