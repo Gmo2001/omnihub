@@ -17,7 +17,9 @@ class UserSchema(BaseModel):
     # [Organization Info] 담당자: HR/Admin 🏢
     # - 회사 내 조직 정보 및 권한입니다.
     # ==========================================
-    department: Optional[str] = None # 부서 (예: "개발팀", "마케팅팀")
+    department: Optional[str] = None # 부서명 (예: "개발팀")
+    department_id: Optional[str] = None # 부서 코드 (예: "DEPT_DEV") - AI-B 학습용
+
     position: Optional[str] = None   # 직책 (예: "팀장", "매니저")
     role: str = Field(default="user") # user, admin, manager
 

@@ -1,10 +1,18 @@
-from fastapi import APIRouter, HTTPException, Query
-from app.core.gcp_clients import get_drive_service, db
-from app.models.file import FileSchema
-from typing import List, Dict, Any, Optional
-from app.services.sync_service import sync_file_metadata
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
+from app.core.gcp_clients import db, get_drive_service
+from app.models.log import ActionType
+from app.services.log_service import LogService
+from app.services.log_service import LogService
+from typing import Optional
+from fastapi import Depends
+from app.dependencies import get_current_user
+from app.models.user import UserSchema
+
+
+#파일과 관련된 모든 요청을 처리하는 곳
 
 router = APIRouter()
+log_service = LogService()
 
 # 1. Real Drive Proxy API
 @router.get("/files/drive/proxy")
@@ -38,26 +46,24 @@ async def get_virtual_tree():
     """
     AI가 분류한 '가상 폴더 구조'를 트리 형태로 반환합니다.
     Firestore에서 virtual_path 필드를 사용하여 계층 구조를 조립합니다.
+    (Real DB Use)
     """
     try:
-        # 모든 파일 가져오면 너무 많을 수 있으니, virtual_path가 있는 것만 조회 (인덱스 필요할 수 있음)
-        # 프로토타입 단계에서는 전체 조회 후 메모리 필터링이 편할 수 있음
         docs = db.collection('files').stream()
         
         tree = {"name": "Root", "children": [], "is_folder": True}
         
         for doc in docs:
             data = doc.to_dict()
-            v_path = data.get('virtual_path') # 예: "/인사팀/2026/채용"
+            v_path = data.get('virtual_path') 
             
             if not v_path:
                 continue
                 
-            # 트리 구조 만들기 로직
+            # 트리 구조 만들기 로직 (간소화)
             current_node = tree
             parts = v_path.strip("/").split("/")
             
-            # 경로 따라가며 노드 생성
             for part in parts:
                 found = False
                 for child in current_node["children"]:
@@ -71,13 +77,12 @@ async def get_virtual_tree():
                     current_node["children"].append(new_node)
                     current_node = new_node
             
-            # 마지막 리프 노드에 파일 추가
+            # 리프 노드에 파일 추가
             file_node = {
                 "name": data.get('name'),
                 "id": data.get('file_id'),
                 "mime_type": data.get('mime_type'),
-                "is_folder": False,
-                # 필요하면 더 많은 필드 추가
+                "is_folder": False
             }
             current_node["children"].append(file_node)
             
@@ -86,45 +91,71 @@ async def get_virtual_tree():
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
 
-# 3. Dashboard Stats API
-@router.get("/dashboard/stats")
-async def get_dashboard_stats():
+# 3. File Detail & Logging (Real DB)
+@router.get("/files/{file_id}")
+async def get_file(
+    file_id: str, 
+    request: Request, 
+    background_tasks: BackgroundTasks,
+    current_user: UserSchema = Depends(get_current_user)
+):
+
     """
-    대시보드 차트용 통계 데이터를 집계하여 반환합니다.
+    파일 상세 정보를 조회하고, 접근 로그를 남깁니다.
     """
-    try:
-        files_ref = db.collection('files')
-        
-        # 3.1 전체 파일 수 (카운트 쿼리)
-        # aggregate_query = files_ref.count() # 최신 firebase-admin SDK 필요
-        # 간단하게 stream() len으로 (프로토타입용, 나중에 count()로 최적화)
-        docs = list(files_ref.stream()) 
-        total_count = len(docs)
-        
-        # 3.2 상태별 카운트
-        pending_count = sum(1 for d in docs if d.to_dict().get('status') == 'pending')
-        processed_count = sum(1 for d in docs if d.to_dict().get('status') == 'processed')
-        
-        # 3.3 최근 활동 (Recent 5)
-        # (원래는 order_by('created_at', 'DESC').limit(5) 써야 함)
-        sorted_docs = sorted(docs, key=lambda x: x.to_dict().get('created_at', ''), reverse=True)[:5]
-        recent_activity = []
-        for d in sorted_docs:
-            data = d.to_dict()
-            recent_activity.append({
-                "name": data.get('name'),
-                "status": data.get('status'),
-                "time": data.get('created_at')
-            })
-            
-        return {
-            "total_files": total_count,
-            "status_summary": {
-                "pending": pending_count,
-                "processed": processed_count
-            },
-            "recent_activity": recent_activity
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # 1. Real DB Query
+    doc_ref = db.collection('files').document(file_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    file_info = doc.to_dict()
+    
+    # 2. Log Integration (Real Context)
+    # JWT/Session에서 user_id를 추출
+    current_user_id = current_user.uid
+ 
+    
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+    
+    # Background Task로 로그 저장
+    background_tasks.add_task(
+        log_service.create_log,
+        user_id=current_user_id,
+        file_id=file_id,
+        action=ActionType.VIEW,
+        success=True,
+        ip_address=ip,
+        user_agent=ua
+    )
+    
+    return {"message": "File access success", "file": file_info}
+
+@router.post("/files/{file_id}/download")
+@router.post("/files/{file_id}/download")
+async def download_file(
+    file_id: str, 
+    request: Request, 
+    background_tasks: BackgroundTasks,
+    current_user: UserSchema = Depends(get_current_user)
+):
+    current_user_id = current_user.uid
+
+    
+    # [Log Integration] 다운로드 로그
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+    
+    background_tasks.add_task(
+        log_service.create_log,
+        user_id=current_user_id,
+        file_id=file_id,
+        action=ActionType.DOWNLOAD,
+        success=True,
+        ip_address=ip,
+        user_agent=ua
+    )
+    
+    return {"message": "Download started"}

@@ -31,6 +31,8 @@ class FileSchema(BaseModel):
     tags: List[str] = []                   # 예: ["매출", "보안"] (자동 생성 태그)
     ssot_score: float = 0.0                # 정보 신뢰도 점수 (0.0 ~ 1.0)
     vector_id: Optional[str] = None        # Vector DB (Pinecone/Chroma)에 저장된 Embedding ID
+    department_id: Optional[str] = None    # 파일 소속 부서 코드 (예: "DEPT_HR") - AI-B 학습용
+
     
     # AI-A  필드
     suggestion_reason: Optional[str] = None  # 분류 이유 (사용자 선호 반영 등)
