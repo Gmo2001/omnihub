@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-dotenv
+pydantic-settings
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+firebase-admin
+google-cloud-aiplatform
+pydantic
