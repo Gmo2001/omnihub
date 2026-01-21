@@ -95,6 +95,7 @@ async def auth_callback(request: Request):
     }
 
 # JWT 생성 유틸리티
+# 구글 토큰은 구글 꺼니까, 우리 시스템 전용 "출입증"을 새로 만들어줍니다.
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=60*24) # 24시간 유효
