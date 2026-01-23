@@ -1,66 +1,44 @@
-from datetime import datetime, timedelta
-from typing import Optional
-from app.models.log import LogSchema, ActionType
-from app.core.gcp_clients import db 
+from datetime import datetime
+from typing import Optional, Dict, Any
+from app.core.gcp_clients import db
+from app.models.user import UserSchema
 
-class LogService:
-    def create_log(
-        self, 
-        user_id: str, 
-        file_id: str, 
-        action: ActionType, 
-        success: bool = True,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
-    ):
-        """
-        로그를 생성하고 실제 Firestore에 저장합니다.
-        (Synchronous method to be run in BackgroundTasks threadpool)
-        """
-        try:
-            # 1. 메타데이터 조회 (Real DB Call)
-            # 동기 호출이므로 BackgroundTasks에서 실행되어야 메인 스레드를 차단하지 않음
-            user_ref = db.collection("users").document(user_id).get()
-            file_ref = db.collection("files").document(file_id).get()
-            
-            user_dept = None
-            file_dept = None
-            
-            if user_ref.exists:
-                user_dept = user_ref.to_dict().get("department_id")
-            
-            if file_ref.exists:
-                file_dept = file_ref.to_dict().get("department_id")
-            
-            # 2. 만료 시간 설정 (TTL: 1년)
-            expire_at = datetime.now() + timedelta(days=365)
-            
-            # 3. 로그 객체 조립 (Snapshot Creation)
-            new_log = LogSchema(
-                timestamp=datetime.now(),
-                expire_at=expire_at,
-                action_type=action,
-                success=success,
-                
-                # Who
-                user_id=user_id,
-                user_department_id=user_dept,
-                
-                # What
-                file_id=file_id,
-                file_department_id=file_dept,
-                
-                # Context
-                ip_address=ip_address,
-                user_agent=user_agent
-            )
-            
-            # 4. 저장 (Save to DB)
-            # 'logs' 컬렉션에 자동 ID로 문서 생성
-            db.collection("logs").add(new_log.dict())
-            
-            print(f"📝 [LogService] Saved Log: {action.value} by {user_id} (Success: {success})")
-            
-        except Exception as e:
-            # 로그 저장이 실패하더라도 메인 비즈니스 로직은 방해하지 않도록 예외 처리
-            print(f"❌ [LogService] Failed to save log: {str(e)}")
+# Collection Name
+LOGS_COLLECTION = "logs"
+
+def log_activity(
+    user: UserSchema,
+    action: str,
+    resource: str,
+    details: Optional[Dict[str, Any]] = None,
+    level: str = "INFO"
+):
+    """
+    사용자 활동 로그를 Firestore에 적재합니다.
+    이 데이터는 Firebase Extension을 통해 BigQuery로 실시간 동기화됩니다.
+    
+    Args:
+        user: 활동을 수행한 사용자 객체
+        action: 수행한 작업 (예: "login", "ingest_file", "process_docai")
+        resource: 대상 리소스 (예: "auth", "file:12345")
+        details: 추가 상세 정보 (JSON)
+        level: 로그 레벨 (INFO, WARN, ERROR)
+    """
+    try:
+        log_entry = {
+            "timestamp": datetime.utcnow(), # BigQuery Partitioning 기준
+            "user_id": user.uid,
+            "user_email": user.email,
+            "department": user.department or "Unknown", # AI-B 분석 핵심 필드
+            "action": action,
+            "resource": resource,
+            "level": level,
+            "details": details or {}
+        }
+        
+        # Add to Firestore (Auto-ID)
+        db.collection(LOGS_COLLECTION).add(log_entry)
+        
+    except Exception as e:
+        # 로그 적재 실패가 메인 로직을 방해하면 안 됨 -> 콘솔 출력만
+        print(f"[LogService Error] Failed to write log: {e}")

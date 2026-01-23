@@ -94,7 +94,7 @@ async def process_drive_changes():
                         print(f"Content extracted for {file_obj.name}: {len(content)} chars")
                         
                         # Step 3: AI Agent에게 분석 요청
-                        from app.services.ai_service import analyze_file_content
+                        from app.services.ai_a.analysis_service import analyze_file_content
                         
                         # AI 상태 'processing'으로 업데이트
                         db.collection('files').document(file_id).update({"ai_status": "processing"})

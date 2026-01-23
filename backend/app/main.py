@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import files, drive_webhook, auth
+from app.routers import files, drive_webhook, auth, admin, ingest
 from fastapi.responses import PlainTextResponse # 텍스트 응답용
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -25,14 +25,18 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 # 라우터 등록
 app.include_router(auth.router)           # 인증 라우터 등록
 app.include_router(drive_webhook.router)
+app.include_router(admin.router)            # Admin APIS
+app.include_router(ingest.router)           # Drive Ingestion
 # app.include_router(graph.router)          # 나중에 구현
 app.include_router(files.router)            # 지금 테스트용
 
 
+#Google 웹사이트 소유권 확인용
 @app.get("/google55f35d8e589dce80.html", response_class=PlainTextResponse)
 def google_verification():
     return "google-site-verification: google55f35d8e589dce80.html"
 
+#health check
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "OmniHub Backend"}

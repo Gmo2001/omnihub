@@ -12,6 +12,8 @@ class UserSchema(BaseModel):
     email: EmailStr       # 이메일
     display_name: str     # 이름
     photo_url: Optional[str] = None # 프로필 사진 URL
+    google_access_token: Optional[str] = None # Encrypted Access Token
+    google_refresh_token: Optional[str] = None # Encrypted Refresh Token
 
     # ==========================================
     # [Organization Info] 담당자: HR/Admin 🏢
