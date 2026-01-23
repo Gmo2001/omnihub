@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>OmniHub Login Flow Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        .card {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            margin: 20px 0;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            background-color: #4285F4;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #357abd;
+        }
+
+        .info {
+            background: #e8f0fe;
+            padding: 15px;
+            border-radius: 4px;
+            color: #1a73e8;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        code {
+            background: #eee;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🛠️ OmniHub 백엔드 연결 테스트</h1>
+
+    <div class="card">
+        <h3>1단계: 배포된 서버 주소 입력</h3>
+        <p>Cloud Run에서 배포된 URL을 아래에 붙여넣으세요. (예: https://omnihub-backend-xyz.a.run.app)</p>
+        <div class="input-group">
+            <input type="text" id="backendUrl" placeholder="여기에 Cloud Run URL 입력">
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>2단계: 로그인 시도</h3>
+        <p>확인 버튼을 누르면 <b>브라우저가 백엔드의 로그인 페이지로 이동</b>합니다.</p>
+        <p id="targetUrlDisplay" style="color: #666; font-size: 0.9em;">이동할 주소: (입력 대기 중...)</p>
+        <button onclick="startLogin()">🚀 구글 로그인 하러 가기</button>
+
+        <div class="info">
+            <strong>ℹ️ 작동 원리 (Test Flow):</strong><br>
+            1. 버튼을 누르면 <code>/auth/login</code> 주소로 웹 브라우저가 이동합니다.<br>
+            2. 백엔드가 구글 로그인 창을 띄워줍니다.<br>
+            3. 로그인이 완료되면 백엔드가 <b>Access Token(출입증)</b>을 화면에 텍스트로 보여줍니다.<br>
+            4. 하얀 화면에 JSON 데이터가 뜨면 <b>테스트 성공</b>입니다!
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>3단계: 로그 생성 테스트 (AI-B 검증)</h3>
+        <p>위 로그인 결과(JSON)에서 <b>access_token</b> 값을 복사해서 아래에 붙여넣으세요.</p>
+        <div class="input-group">
+            <input type="text" id="accessToken" placeholder="eyJhbGciOiJIUzI1NiIs...">
+        </div>
+        <button onclick="testFileAccess()" style="background-color: #34a853;">📂 파일 조회 (로그 생성)</button>
+        <div id="apiResult"
+            style="margin-top: 10px; padding: 10px; border: 1px solid #ccc; background: white; display: none;"></div>
+    </div>
+
+    </script>
+    <script>
+        const input = document.getElementById('backendUrl');
+        const display = document.getElementById('targetUrlDisplay');
+
+        input.addEventListener('input', function () {
+            const url = this.value.replace(/\/$/, "");
+            if (url) {
+                display.innerHTML = `이동할 주소: <strong>${url}/auth/login</strong>`;
+            } else {
+                display.innerText = "이동할 주소: (입력 대기 중...)";
+            }
+        });
+
+        function startLogin() {
+            const baseUrl = input.value;
+            if (!baseUrl) {
+                alert("Cloud Run 주소를 먼저 입력해주세요!");
+                return;
+            }
+
+            // 실제 이동 로직
+            const targetUrl = baseUrl.replace(/\/$/, "") + "/auth/login";
+
+            // 사용자에게 알림 후 이동 (새 창으로 열기)
+            if (confirm(`로그인 창을 새 탭에서 엽니다.\n로그인 후 나오는 JSON에서 'access_token'을 복사해서\n이 창으로 돌아와주세요.`)) {
+                window.open(targetUrl, '_blank');
+            }
+        }
+
+        async function testFileAccess() {
+            const baseUrl = input.value;
+            const token = document.getElementById('accessToken').value;
+
+            if (!baseUrl || !token) {
+                alert("URL과 Access Token을 모두 입력해주세요!");
+                return;
+            }
+
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = "⏳ 요청 중...";
+
+            try {
+                // 더미 파일 ID: test-file-001 (init_db.py로 생성 예정)
+                const response = await fetch(`${baseUrl.replace(/\/$/, "")}/files/test-file-001`, {
+                    headers: {
+                        "Authorization": `Bearer ${token.trim()}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerHTML = `<strong style="color:green">✅ 성공! (로그 생성됨)</strong><br><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                } else {
+                    resultDiv.innerHTML = `<strong style="color:red">❌ 실패</strong><br>${JSON.stringify(data)}`;
+                }
+            } catch (e) {
+                resultDiv.innerHTML = `<strong style="color:red">❌ 통신 오류</strong><br>${e.message}`;
+            }
+        }
+    </script>
+</body>
+
+</html>
