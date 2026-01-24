@@ -1,0 +1,24 @@
+{
+    "firestore": {
+        "collection_docs": "omnihub_docs",
+        "collection_chunks": "omnihub_chunks",
+        "collection_concepts": "omnihub_concepts"
+    },
+    "concept_strategy": {
+        "mode": "tags_as_concepts",
+        "concept_id_prefix": "tag:"
+    },
+    "docrecord_defaults": {
+        "driveUrl": "",
+        "actualPath": "",
+        "owner": "unknown",
+        "status": "pending",
+        "security": "medium",
+        "aiSummary3": [
+            "-",
+            "-",
+            "-"
+        ],
+        "relatedFolderPaths": []
+    }
+}

@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data directories (Local only)
+data/
+*.jsonl
+*.csv
+
+# DocAI results (Large Files)
+docai_result/
+02_docai_result/
+
+# Credentials & Configs
+key.json
+*.env
+service_account.json
+.DS_Store
+Thumbs.db
+
+# Vector DB (Local)
+data/vectordb/

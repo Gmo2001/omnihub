@@ -1,0 +1,47 @@
+{
+    "owners": [
+        {
+            "name": "Alice Kim",
+            "email": "alice@omnihub.legacy",
+            "photoUrl": "https://i.pravatar.cc/100?img=1"
+        },
+        {
+            "name": "Bob Lee",
+            "email": "bob@omnihub.legacy",
+            "photoUrl": "https://i.pravatar.cc/100?img=2"
+        },
+        {
+            "name": "Charlie Park",
+            "email": "charlie@omnihub.legacy",
+            "photoUrl": "https://i.pravatar.cc/100?img=3"
+        },
+        {
+            "name": "David Choi",
+            "email": "david@omnihub.legacy",
+            "photoUrl": "https://i.pravatar.cc/100?img=4"
+        }
+    ],
+    "folders": [
+        "/Engineering/Specs/2024",
+        "/Engineering/Reports",
+        "/Marketing/Q1_Campaign",
+        "/Marketing/Assets",
+        "/Sales/Contracts/KR",
+        "/Sales/Contracts/US",
+        "/HR/Policies",
+        "/General/Shared"
+    ],
+    "statuses": [
+        "active",
+        "active",
+        "active",
+        "archived",
+        "review"
+    ],
+    "file_types_map": {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "txt": "text/plain"
+    }
+}

@@ -1,0 +1,6 @@
+{
+  "policy_name": "recursive_character_splitting",
+  "chunk_size": 1000,
+  "chunk_overlap": 200,
+  "separators": ["\n\n", "\n", " ", ""]
+}

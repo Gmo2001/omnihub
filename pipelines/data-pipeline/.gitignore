@@ -1,0 +1,39 @@
+# General
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+*.egg-info/
+dist/
+build/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Data & Logs
+data/
+logs/
+*.log
+*.sqlite
+*.db
+
+# Bundle Project Tool
+bundle_project_to_txt/data/
+bundle_project_to_txt/.venv/
+
+# Local/Temp files
+*.tmp
+*.bak
+*.swp
