@@ -291,7 +291,7 @@ def remove_base64_and_large_fields(text: str, is_json_candidate: bool) -> (str, 
 def analyze_data_folder(root: Path):
     data_dir = root / "data"
     if not data_dir.exists() or not data_dir.is_dir():
-        return [], {}
+        return []
 
     print("[INFO] Analyzing data folder...")
     datasets = []

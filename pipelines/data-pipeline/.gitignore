@@ -28,6 +28,7 @@ logs/
 *.log
 *.sqlite
 *.db
+ref/
 
 # Bundle Project Tool
 bundle_project_to_txt/data/
