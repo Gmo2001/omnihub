@@ -560,9 +560,9 @@ def run_bundler(target_path=None, output_path=None):
     # Actually User Prompt v3 added TS to filename. User Patch C says "project_tree.txt" inside.
     # Let's use clean names inside the timestamp folder.
     
-    tree_path = out_dir / TREE_FILENAME
-    bundle_path = out_dir / BUNDLE_FILENAME
-    meta_path = out_dir / META_FILENAME
+    tree_path = out_dir / f"{root.name}_{TREE_FILENAME}"
+    bundle_path = out_dir / f"{root.name}_{BUNDLE_FILENAME}"
+    meta_path = out_dir / f"{root.name}_{META_FILENAME}"
 
     if not root.exists() or not root.is_dir():
         print(f"[ERROR] ROOT_DIR is invalid: {root}")

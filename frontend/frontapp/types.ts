@@ -47,3 +47,11 @@ export interface SecurityState {
   softBlocked: boolean;
   blockedCount: number;
 }
+
+export interface Citation {
+  chunk_id: string;
+  doc_id: string;
+  page: number;
+  source_uri: string;
+  snippet: string;
+}

@@ -1,40 +1,14 @@
 
 import { ConceptNode, DocRecord, Role, SecurityLevel } from '../types';
 
-// --- Constants for Random Generation ---
-const CONCEPT_LABELS = [
-  "비품관리", "구매요청", "회계감사", "비용정산", "계약검토", "법무지원", "인재채용",
-  "면접평가", "사내규정", "정보보안", "프로젝트A", "프로젝트B", "차세대구축", "마케팅",
-  "영업실적", "R&D", "물류관리", "재고현황", "급여대장", "컴플라이언스", "내부감사", "경영전략",
-  "1분기목표", "2분기목표", "예산편성", "법인카드", "출장규정", "IT지원", "클라우드운영",
-  "API연동", "프론트엔드", "백엔드", "DB설계", "UX디자인", "고객센터", "VOC분석"
-];
+// --- Constants ---
+const API_BASE_URL = 'http://localhost:8000'; // Helper for dev
 
-const VIRTUAL_ROOTS = ["경영지원본부", "전략기획실", "인사팀", "재무팀", "법무팀", "IT개발실"];
-
-// 50 Actual Folders for "Actual Tree"
-const ACTUAL_FOLDERS = [
-    "01_인사_급여_2024", "01_인사_채용_이력서", "01_인사_퇴직자관리", "01_인사_증명서발급", "01_인사_조직도",
-    "02_재무_법인카드", "02_재무_부가세신고", "02_재무_결산서_2023", "02_재무_결산서_2024", "02_재무_지출결의서",
-    "03_총무_비품관리", "03_총무_임대차계약", "03_총무_차량일지", "03_총무_행사지원", "03_총무_우편발송",
-    "04_법무_NDA", "04_법무_용역계약", "04_법무_소송관련", "04_법무_자문의견서", "04_법무_등기부등본",
-    "05_IT_서버로그", "05_IT_장애보고서", "05_IT_라이선스", "05_IT_보안점검", "05_IT_계정관리",
-    "06_영업_수주계약", "06_영업_제안서_A팀", "06_영업_제안서_B팀", "06_영업_고객리스트", "06_영업_매출집계",
-    "07_마케팅_브랜드", "07_마케팅_SNS운영", "07_마케팅_행사기획", "07_마케팅_보도자료", "07_마케팅_광고비",
-    "08_연구소_특허", "08_연구소_프로젝트A", "08_연구소_프로젝트B", "08_연구소_프로젝트C", "08_연구소_논문",
-    "09_감사_내부회계", "09_감사_정기감사", "09_감사_제보접수", "09_감사_조치결과", "09_감사_규정집",
-    "10_CEO_보고자료", "10_CEO_이사회", "10_CEO_주주총회", "10_CEO_신년사", "10_CEO_비서실"
-];
-
-const OWNERS = ["김철수@corp.com", "이영희@corp.com", "박지성@corp.com", "최민수@corp.com", "security_bot", "admin@corp.com"];
-const TAGS_POOL = ["대외비", "초안", "확정", "긴급", "보관용", "검토필요", "외부발송", "사내용", "결재완료", "보안"];
-const TEXT_SNIPPETS = [
-  "본 문서는 2026년도 회계연도의 주요 목표를 포함하고 있습니다.",
-  "감사 기간 동안 보안 수칙을 엄격히 준수해야 합니다.",
-  "새로운 규제 요건을 반영하여 프로젝트 일정이 조정되었습니다.",
-  "해당 후보자의 면접 결과, 기술적 역량이 매우 뛰어난 것으로 평가되었습니다.",
-  "1분기 하드웨어 구매 요청에 대한 영수증 내역입니다."
-];
+export interface VersionMeta {
+    versionNumber?: number;
+    versionStatus?: 'final' | 'approved' | 'revised' | 'draft' | null;
+    rawTokens: string[];
+}
 
 // --- Version Regex & Logic ---
 const REGEX_VER_NUM = /\b(v|ver|version|rev|re|r)[\s._-]*(\d{1,3})\b/gi;
@@ -44,12 +18,6 @@ const REGEX_STATUS_REVISED = /(update(d)?|revis(ed|ion)?|수정(본|안)?|재수
 const REGEX_STATUS_DRAFT = /(draft|tmp|temp|초안|초본|임시(본)?|작업본|검토본|내부용)/gi;
 const REGEX_DATE_PREFIX = /^\d{4}([._-]?\d{2}){0,2}[._-]?/;
 const REGEX_BRACKET_PREFIX = /^\s*[\[\(].*?[\]\)]\s*/;
-
-export interface VersionMeta {
-    versionNumber?: number;
-    versionStatus?: 'final' | 'approved' | 'revised' | 'draft' | null;
-    rawTokens: string[];
-}
 
 export const extractVersionMeta = (fileName: string): VersionMeta => {
     const rawTokens: string[] = [];
@@ -72,7 +40,7 @@ export const extractVersionMeta = (fileName: string): VersionMeta => {
 };
 
 export const computeGroupKey = (fileName: string): string => {
-    let base = fileName.replace(/\.[^/.]+$/, ""); 
+    let base = fileName.replace(/\.[^/.]+$/, "");
     base = base.replace(REGEX_BRACKET_PREFIX, "");
     base = base.replace(REGEX_DATE_PREFIX, "");
     base = base.replace(REGEX_VER_NUM, "");
@@ -99,7 +67,7 @@ const versionSort = (a: DocRecord, b: DocRecord) => {
     if (sA !== sB) return sB - sA;
     const vA = metaA.versionNumber || 0;
     const vB = metaB.versionNumber || 0;
-    if (vA !== vB) return vB - vA; 
+    if (vA !== vB) return vB - vA;
     return b.updatedAt - a.updatedAt;
 };
 
@@ -128,9 +96,9 @@ export const groupDocsByVersion = (docs: DocRecord[]): GroupedDocs => {
     const tempMap: Record<string, DocRecord[]> = {};
     docs.forEach(doc => {
         const base = computeGroupKey(doc.name);
-        if (base.length < 2) { 
-             singles.push(doc);
-             return;
+        if (base.length < 2) {
+            singles.push(doc);
+            return;
         }
         if (!tempMap[base]) tempMap[base] = [];
         tempMap[base].push(doc);
@@ -145,83 +113,178 @@ export const groupDocsByVersion = (docs: DocRecord[]): GroupedDocs => {
     return { groups, singles };
 };
 
-// --- Helpers ---
-function getRandomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-function getRandomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-function getRandomDate(start: Date, end: Date): number {
-  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime())).getTime();
-}
+// --- Normalization Logic (SSOT) ---
 
-// --- MAIN SEED GENERATOR (Internal) ---
-const generateSeedData = (): { concepts: ConceptNode[], docs: DocRecord[], logMsg: string } => {
-  const concepts: ConceptNode[] = [];
-  for (let i = 0; i < 120; i++) {
-    const labelBase = getRandomItem(CONCEPT_LABELS);
-    const suffix = i % 5 === 0 ? `_${(i % 5) + 1}` : '';
-    const isRecent = Math.random() > 0.6;
-    const createdAt = isRecent 
-      ? getRandomDate(new Date('2026-01-01'), new Date()) 
-      : getRandomDate(new Date('2024-01-01'), new Date('2025-12-31'));
+const normalizeDoc = (raw: any): DocRecord => {
+    // If raw is already normalized-ish or comes from Firestore directly
+    const sizeKB = raw.size ? parseInt(raw.size) / 1024 : 0;
+    const tags = Array.isArray(raw.tags) ? raw.tags : [];
 
-    concepts.push({ id: crypto.randomUUID(), label: `${labelBase}${suffix}`, createdAt: createdAt });
-  }
+    // Concept IDs mapping
+    const conceptIds = Array.isArray(raw.concept_ids) ? raw.concept_ids : (Array.isArray(raw.conceptIds) ? raw.conceptIds : []);
 
-  const docs: DocRecord[] = [];
-  const securityLevels: SecurityLevel[] = ['low', 'medium', 'high'];
-  const statuses: DocRecord['status'][] = ['idle', 'pending', 'approved', 'rejected'];
-
-  for (let i = 0; i < 1000; i++) {
-    const year = getRandomInt(2024, 2026);
-    const conceptLabel = getRandomItem(CONCEPT_LABELS);
-    const virtualFolder = `${getRandomItem(VIRTUAL_ROOTS)}/${year}/${conceptLabel}`;
-    const actualFolder = getRandomItem(ACTUAL_FOLDERS);
-    const version = Math.random() > 0.7 ? `_v${getRandomInt(1, 5)}` : (Math.random() > 0.8 ? '_Final' : '');
-    const name = `${year}년_${conceptLabel.replace(/\s/g, '_')}_${getRandomItem(['보고서', '계약서', '명세서', '회의록', '지출결의서'])}${version}.pdf`;
-    
-    const linkedConcepts: string[] = [];
-    const numLinks = getRandomInt(1, 4);
-    for (let j = 0; j < numLinks; j++) {
-        const c = getRandomItem(concepts);
-        if(!linkedConcepts.includes(c.id)) linkedConcepts.push(c.id);
+    // Security Level Mapping
+    let sec: SecurityLevel = 'medium';
+    if (raw.securityLevel || raw.security_level) {
+        const lower = (raw.securityLevel || raw.security_level).toLowerCase();
+        if (lower === 'high' || lower === 'critical') sec = 'high';
+        else if (lower === 'low' || lower === 'public') sec = 'low';
     }
 
-    const docTags: string[] = [];
-    const numTags = getRandomInt(2, 5);
-    for(let t=0; t<numTags; t++) {
-        const tag = getRandomItem(TAGS_POOL);
-        if(!docTags.includes(tag)) docTags.push(tag);
+    // Name Resolution (Critical for "unknown.pdf" fix)
+    // Backend might return: title, name, or filename
+    const name = raw.title || raw.name || raw.filename || "Untitled Doc.pdf";
+
+    return {
+        id: String(raw.id || `unknown-${Math.random().toString(36).substr(2, 9)}`),
+        name: name,
+        driveUrl: raw.webViewLink || raw.drive_url || "#",
+        folderPath: raw.virtual_path || raw.folderPath || "Unclassified/General",
+        actualPath: raw.actual_path || raw.actualPath || "99_Unsorted",
+        tags: tags,
+        period: raw.period || "2024-Q1",
+        owner: (raw.owners && raw.owners[0] && (raw.owners[0].displayName || raw.owners[0].email)) || raw.owner || "Unknown",
+        updatedAt: raw.modifiedTime ? new Date(raw.modifiedTime).getTime() : (raw.updated_at ? new Date(raw.updated_at).getTime() : Date.now()),
+        sizeKB: sizeKB,
+        ext: raw.ext || 'pdf',
+        security: sec,
+        aiSummary3: raw.aiSummary || raw.ai_summary || ["AI 요약 정보가 없습니다."],
+        textExcerpt: raw.snippet || raw.textExcerpt || "내용 미리보기가 없습니다.",
+        conceptIds: conceptIds,
+        status: raw.status || 'idle',
+        relatedFolderPaths: []
+    };
+};
+
+const normalizeConcept = (raw: any): ConceptNode => {
+    return {
+        id: raw.id,
+        label: raw.label || raw.name || "Unknown Concept",
+        createdAt: raw.created_at ? new Date(raw.created_at).getTime() : Date.now()
+    };
+};
+
+// --- API Implementation ---
+
+export interface ChatRequest {
+    question: string;
+    filters?: any;
+    topK?: number;
+}
+
+export interface ChatResponse {
+    answer: string;
+    citations: any[];
+    action_item?: string;
+}
+
+export const OmniHubAPI = {
+    // 1. Initial Data Load
+    fetchInitialData: async () => {
+        try {
+            console.log("Fetching /api/initial-data...");
+            // Use relative path to let proxy or same-origin handle it, or use absolute if needed.
+            // Assuming localhost:8000 for dev based on user prompt.
+            const res = await fetch(`${API_BASE_URL}/api/initial-data`);
+            if (!res.ok) throw new Error(`API Error: ${res.status}`);
+            const data = await res.json();
+
+            // Expected schema: { docs: [], concepts: [] }
+            const docs = (data.docs || []).map(normalizeDoc);
+            const concepts = (data.concepts || []).map(normalizeConcept);
+
+            return { docs, concepts, logMsg: `Loaded ${docs.length} docs & ${concepts.length} concepts from Firestore` };
+        } catch (e) {
+            console.warn("Initial data fetch failed, using minimal fallback", e);
+            // Fallback for Dev/Offline
+            const fallbackConcepts: ConceptNode[] = [{ id: 'c1', label: '오프라인_모드', createdAt: Date.now() }];
+            const fallbackDocs: DocRecord[] = [{
+                id: 'd1', name: 'Please_Check_Backend.pdf', driveUrl: '#', folderPath: 'System', actualPath: '00_System',
+                tags: ['Error'], period: '2026', owner: 'system', updatedAt: Date.now(), sizeKB: 0, ext: 'pdf',
+                security: 'low', aiSummary3: ['백엔드 연결 실패', 'API 서버 확인 필요'], textExcerpt: 'Failed to connect to API.',
+                conceptIds: ['c1'], status: 'idle', relatedFolderPaths: []
+            }];
+            return { docs: fallbackDocs, concepts: fallbackConcepts, logMsg: "API Error: Switched to Fallback Mode" };
+        }
+    },
+
+    // 2. Chat
+    chat: async (question: string, topK: number = 8): Promise<ChatResponse | null> => {
+        try {
+            const body: ChatRequest = { question, topK };
+            const res = await fetch(`${API_BASE_URL}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) throw new Error(`Chat API Error: ${res.status}`);
+            return await res.json();
+        } catch (e) {
+            console.error("Chat API failed", e);
+            return null;
+        }
+    },
+
+    // 3. Evidence Graph
+    searchEvidence: async (question: string, topK: number = 8) => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/graph/evidence?question=${encodeURIComponent(question)}&topK=${topK}`);
+            if (!res.ok) throw new Error(`Evidence API Error: ${res.status}`);
+            const data = await res.json();
+
+            const docs = (data.docs || []).map(normalizeDoc);
+            const concepts = (data.concepts || []).map(normalizeConcept);
+
+            // Backend citations: { doc_id, page, snippet, score, ... }
+            return {
+                docs,
+                concepts,
+                citations: data.citations || []
+            };
+
+        } catch (e) {
+            console.error("Evidence search failed", e);
+            return null;
+        }
+    },
+
+    // 4. Chunk Retrieval
+    getDocChunks: async (docId: string) => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/docs/${docId}/chunks`);
+            if (!res.ok) throw new Error(`Chunk API Error: ${res.status}`);
+            return await res.json(); // Returns { chunks: [] }
+        } catch (e) {
+            console.error("Chunk fetch failed", e);
+            // Fallback for demo
+            return {
+                chunks: [
+                    { id: 'ch1', page: 1, snippet: "This is a fallback snippet because backend is not reachable.", tags: ['Fallback'], security: 'low' },
+                    { id: 'ch2', page: 3, snippet: "Another snippet showing where this concept appears.", tags: ['Evidence'], security: 'medium' }
+                ]
+            };
+        }
+    },
+
+    uploadDocument: async (doc: DocRecord) => {
+        // Still Mock or implement actual upload if backend supports
+        // const res = await fetch(`${API_BASE_URL}/api/docs`, { method: 'POST', body: ... });
+        await new Promise(r => setTimeout(r, 1000));
+        return { success: true, doc };
+    },
+
+    updateDocumentStatus: async (id: string, status: string) => {
+        // E.g. PATCH /api/docs/:id
+        try {
+            // await fetch(`${API_BASE_URL}/api/docs/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+            console.log(`[TODO] Backend Patch: Doc ${id} -> ${status}`);
+            await new Promise(r => setTimeout(r, 500));
+            return { success: true, id, status };
+        } catch (e) {
+            console.warn("Update failed", e);
+            throw e;
+        }
     }
-
-    docs.push({
-      id: crypto.randomUUID(),
-      name: name,
-      driveUrl: `https://fake-drive.corp/files/${name}`,
-      folderPath: virtualFolder,
-      actualPath: actualFolder,
-      tags: docTags,
-      period: `${year}-H${getRandomInt(1, 2)}`,
-      owner: getRandomItem(OWNERS),
-      updatedAt: getRandomDate(new Date(`${year}-01-01`), new Date()),
-      sizeKB: getRandomInt(100, 8000),
-      ext: 'pdf',
-      security: getRandomItem(securityLevels),
-      aiSummary3: [
-        `[Virtual] ${virtualFolder} 로 자동 분류됨.`,
-        `[Actual] ${actualFolder} 에 저장된 파일임.`,
-        `AI Insight: ${linkedConcepts.length}개의 연관 개념이 식별됨.`
-      ],
-      textExcerpt: getRandomItem(TEXT_SNIPPETS) + " " + getRandomItem(TEXT_SNIPPETS),
-      conceptIds: linkedConcepts,
-      status: getRandomItem(statuses),
-      relatedFolderPaths: []
-    });
-  }
-
-  return { concepts, docs, logMsg: `Initialized: 50 Actual Folders, 1000 Docs` };
 };
 
 export const generateUniqueName = (baseName: string, existingDocs: DocRecord[]): string => {
@@ -234,24 +297,6 @@ export const generateUniqueName = (baseName: string, existingDocs: DocRecord[]):
     return name;
 };
 
-// --- API SIMULATION ---
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export const OmniHubAPI = {
-    fetchInitialData: async () => {
-        await delay(1200); // Simulate network
-        return generateSeedData();
-    },
-    uploadDocument: async (doc: DocRecord) => {
-        await delay(2000); // Simulate upload
-        return { success: true, doc };
-    },
-    updateDocumentStatus: async (id: string, status: string) => {
-        await delay(600);
-        return { success: true, id, status };
-    }
-};
-
 // --- Actual Tree Helpers ---
 export interface ActualFolderNode {
     folderName: string;
@@ -261,12 +306,11 @@ export interface ActualFolderNode {
 
 export const getActualTreeStructure = (docs: DocRecord[], filterText: string = ''): ActualFolderNode[] => {
     const map: Record<string, DocRecord[]> = {};
-    ACTUAL_FOLDERS.forEach(f => map[f] = []);
-
+    // Dynamic folder discovery instead of hardcoded list
     docs.forEach(doc => {
-        if (map[doc.actualPath]) {
-            map[doc.actualPath].push(doc);
-        }
+        const path = doc.actualPath || "Unsorted";
+        if (!map[path]) map[path] = [];
+        map[path].push(doc);
     });
 
     const result = Object.entries(map).map(([folderName, folderDocs]) => {
@@ -284,9 +328,42 @@ export const getActualTreeStructure = (docs: DocRecord[], filterText: string = '
         const lowerFilter = filterText.toLowerCase();
         return result.map(node => ({
             ...node,
-            docs: node.docs.filter(d => 
-                d.name.toLowerCase().includes(lowerFilter) || 
+            docs: node.docs.filter(d =>
+                d.name.toLowerCase().includes(lowerFilter) ||
                 node.folderName.toLowerCase().includes(lowerFilter)
+            )
+        })).filter(node => node.docs.length > 0 || node.folderName.toLowerCase().includes(lowerFilter));
+    }
+
+    return result;
+};
+
+export const getVirtualTreeStructure = (docs: DocRecord[], filterText: string = ''): ActualFolderNode[] => {
+    const map: Record<string, DocRecord[]> = {};
+    docs.forEach(doc => {
+        const path = doc.folderPath || "Unclassified";
+        if (!map[path]) map[path] = [];
+        map[path].push(doc);
+    });
+
+    const result = Object.entries(map).map(([folderName, folderDocs]) => {
+        folderDocs.sort((a, b) => b.updatedAt - a.updatedAt);
+        return {
+            folderName, // Virtual Path Name
+            totalDocs: folderDocs.length,
+            docs: folderDocs
+        };
+    });
+
+    result.sort((a, b) => a.folderName.localeCompare(b.folderName));
+
+    if (filterText) {
+        const lowerFilter = filterText.toLowerCase();
+        return result.map(node => ({
+            ...node,
+            docs: node.docs.filter(d =>
+                d.name.toLowerCase().includes(lowerFilter) ||
+                node.folderName.toLowerCase().includes(lowerFilter) // Match path name
             )
         })).filter(node => node.docs.length > 0 || node.folderName.toLowerCase().includes(lowerFilter));
     }
@@ -297,9 +374,9 @@ export const getActualTreeStructure = (docs: DocRecord[], filterText: string = '
 export const getTopTags = (docs: DocRecord[]): string[] => {
     const counts: Record<string, number> = {};
     docs.forEach(d => d.tags.forEach(t => counts[t] = (counts[t] || 0) + 1));
-    return Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10).map(e => e[0]);
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(e => e[0]);
 };
 
 export const getRecentConcepts = (concepts: ConceptNode[]): ConceptNode[] => {
-    return [...concepts].sort((a,b) => b.createdAt - a.createdAt).slice(0, 20);
+    return [...concepts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
 };
