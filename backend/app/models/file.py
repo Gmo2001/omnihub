@@ -22,22 +22,20 @@ class FileSchema(BaseModel):
     is_folder: bool = False                # 폴더 여부
     trashed: bool = False                  # 휴지통 여부
     
+    # [Phase 3 Expansion] AI 분석 및 추적을 위한 추가 메타데이터
+    gcs_uri: Optional[str] = None          # GCS 원본 파일 경로 (gs://...)
+    last_modified_by: Optional[str] = None # 마지막 수정자 (협업 맥락 파악)
+    full_path: Optional[str] = None        # 실제 드라이브 경로 (예: /Shared/2024/Project)
+    
     # ==========================================
     # [AI Analysis Result] 담당자: AI/ML Engineer 🧠
     # - 텍스트 추출 후 LLM이 분석하여 채워넣는 메타데이터입니다=> 아직 어떤 메타 데이터 넣어야할지는 미정!!
     # - Ingestion Service 및 AI Pipeline에서 업데이트합니다.
     # ==========================================
-    virtual_path: Optional[str] = None     # 예: "회계팀/2026/매출" (AI가 분류한 논리적 경로)
-    tags: List[str] = []                   # 예: ["매출", "보안"] (자동 생성 태그)
-    ssot_score: float = 0.0                # 정보 신뢰도 점수 (0.0 ~ 1.0)
-    vector_id: Optional[str] = None        # Vector DB (Pinecone/Chroma)에 저장된 Embedding ID
-    department_id: Optional[str] = None    # 파일 소속 부서 코드 (예: "DEPT_HR") - AI-B 학습용
-
-    
-    # AI-A  필드
-    suggestion_reason: Optional[str] = None  # 분류 이유 (사용자 선호 반영 등)
-    citation: Optional[str] = None           # 근거 (참조 페이지 및 문구)
+    # [Status for Phase 3]
     ai_status: str = Field(default="ready")  # ready, processing, completed, failed
+
+    # ==========================================
 
     # ==========================================
     # [System Lifecycle] 담당자: Backend Core ⚙️

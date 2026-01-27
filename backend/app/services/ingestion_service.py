@@ -2,13 +2,13 @@ from app.core.gcp_clients import get_drive_service
 import io
 from googleapiclient.http import MediaIoBaseDownload
 
-def ingest_file_content(file_id: str, mime_type: str) -> str:
+def ingest_file_content(file_id: str, mime_type: str, drive_service=None) -> str:
     """
     Google Drive 파일의 내용을 텍스트로 추출합니다.
     - Google Docs/Sheets/Slides: text/plain으로 변환(Export)하여 다운로드
     - 일반 텍스트/PDF: 바이너리 다운로드 (현재는 텍스트 파일 단순 디코딩 예시)
     """
-    service = get_drive_service()
+    service = drive_service if drive_service else get_drive_service()
     content = ""
     
     try:

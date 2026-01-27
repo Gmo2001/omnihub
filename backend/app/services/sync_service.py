@@ -2,15 +2,38 @@ from datetime import datetime
 from app.core.gcp_clients import db, get_drive_service
 from app.models.file import FileSchema
 
-def sync_file_metadata(file_id: str):
-    service = get_drive_service()
+def resolve_full_path(service, parents, current_path=""):
+    """
+    재귀적으로 상위 폴더를 조회하여 전체 경로를 구성합니다.
+    예: /Shared/2024/Project
+    (주의: API 호출이 많아질 수 있으므로 캐싱 권장, 일단 단순 구현)
+    """
+    if not parents:
+        return current_path
+    
+    parent_id = parents[0] # 첫 번째 부모만 추적 (다중 부모는 복잡하므로 패스)
+    try:
+        parent_meta = service.files().get(fileId=parent_id, fields="id, name, parents").execute()
+        parent_name = parent_meta.get('name', 'Unknown')
+        
+        new_path = f"/{parent_name}{current_path}"
+        return resolve_full_path(service, parent_meta.get('parents'), new_path)
+    except Exception:
+        # 권한 문제 등으로 조회 실패 시 중단
+        return f"/Unknown{current_path}"
+
+def sync_file_metadata(file_id: str, drive_service=None):
+    service = drive_service if drive_service else get_drive_service()
     
     try:
         # 1. 구글 드라이브에서 파일 정보 조회 (UI에 필요한 필드 지정 필수)
         # fields 파라미터로 필요한 정보만 쏙쏙 골라옵니다 (성능 최적화)
+        # 1. 구글 드라이브에서 파일 정보 조회 (UI에 필요한 필드 지정 필수)
+        # fields 파라미터로 필요한 정보만 쏙쏙 골라옵니다 (성능 최적화)
+        # [Phase 3] lastModifyingUser 추가 및 Parents 상세 조회
         file_metadata = service.files().get(
             fileId=file_id,
-            fields="id, name, mimeType, parents, thumbnailLink, iconLink, owners, createdTime, modifiedTime, trashed, webViewLink"
+            fields="id, name, mimeType, parents, thumbnailLink, iconLink, owners, createdTime, modifiedTime, trashed, webViewLink, lastModifyingUser"
         ).execute()
 
         # 파일이 삭제(휴지통)된 경우 처리
@@ -45,7 +68,11 @@ def sync_file_metadata(file_id: str):
             created_at=created_dt,
             updated_at=modified_dt,
             last_synced_at=datetime.now(),
-            status='pending'  # 기본값 설정
+            status='pending',  # 기본값 설정
+            
+            # [Phase 3] 추가 메타데이터
+            last_modified_by=file_metadata.get('lastModifyingUser', {}).get('displayName'),
+            full_path=resolve_full_path(service, file_metadata.get('parents'), f"/{file_metadata.get('name')}")
         )
 
         # 3. Firestore에 저장 (Set with merge=True)

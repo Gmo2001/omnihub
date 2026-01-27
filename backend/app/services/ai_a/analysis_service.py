@@ -1,57 +1,74 @@
-from app.models.file import FileSchema
-import time
+from app.schemas.ai_request import AIAnalysisRequest
+from app.models.ai_insight import AIInsightSchema
+from app.core.gcp_clients import db
+import datetime
+from app.core.logger import log_system_event
 
-#아래는 전부 예시
-async def analyze_file_content(content: str, file_metadata: FileSchema) -> dict:
+async def analyze_file_content(request: AIAnalysisRequest):
     """
-    [AI-A 개발자 영역]
-    텍스트 내용(content)을 분석하여 메타데이터(가상 경로, 태그, 이유, 근거)를 반환합니다.
-    
-    Args:
-        content (str): Ingestion Service가 추출한 파일의 전체 텍스트
-        file_metadata (FileSchema): 파일의 기본 정보 (이름, 소유자 등) - RAG 시 사용자의 선호도 조회 Key로 사용 가능
-        
-    Returns:
-        dict: 업데이트할 필드들의 딕셔너리 (virtual_path, tags, suggestion_reason, citation 등)
+    [Phase 3] AI 분석 서비스 Entry Point
+    - Input: AIAnalysisRequest (GCS URI + Context)
+    - Output: None (내부에서 ai_insights 컬렉션에 저장)
     """
+    print(f"🤖 [AI Service] Analyzing file: {request.file_name} (GCS: {request.gcs_uri})...")
     
-    print(f"🤖 [AI Service] Analyzing file: {file_metadata.name} ({len(content)} chars)...")
+    # [Verification Log] AI Handoff 패키지 내용 확인
+    print(f"📦 [AI Handoff Check] GCS: {request.gcs_uri}, Path: {request.full_path}, Owner: {request.owners}")
     
-    # === TODO: 여기에 실제 Gemini/LangChain 로직을 구현하세요 ===
-    # 예: response = gemini.generate_content(...)
+    # === Mock Logic (실제 AI 연동은 여기 아래에 구현) ===
+    # 1. GCS URI가 있으면 -> Document AI / Gemini Flash 호출
+    # 2. extracted_text가 있으면 -> LLM 호출
     
-    # [Mockup] 프로토타입용 가짜 지능 (나중에 삭제/교체 될 부분)
-    # 파일 이름에 따라 대충 분류하는 척을 합니다.
-    mock_result = {}
+    # 여기서는 간단한 Rule-based Mockup
+    category = "일반문서"
+    summary = "자동 생성된 요약입니다."
+    keywords = ["General"]
     
-    if "예산" in file_metadata.name or "지출" in file_metadata.name:
-        mock_result = {
-            "virtual_path": "/재무팀/2026/01_예산관리",
-            "tags": ["Confidential", "Budget", "Finance"],
-            "suggestion_reason": "파일명에 '예산/지출' 키워드가 포함되어 재무팀 예산안으로 분류했습니다.",
-            "citation": "파일명 (100% 일치)",
-            "ai_status": "completed"
-        }
-    elif "이력서" in file_metadata.name or "채용" in file_metadata.name:
-        mock_result = {
-            "virtual_path": "/인사팀/2026/채용/지원자",
-            "tags": ["HR", "Recruitment", "Personal_Data"],
-            "suggestion_reason": "채용 관련 키워드가 감지되었습니다.",
-            "citation": "본문 내용 중 '학력', '경력' 키워드 다수 발견",
-            "ai_status": "completed"
-        }
-    else:
-        # 일반 문서
-        mock_result = {
-            "virtual_path": "/공용/미분류_문서함",
-            "tags": ["General"],
-            "suggestion_reason": "특정 부서 키워드를 찾지 못했습니다.",
-            "citation": "N/A",
-            "ai_status": "completed"
-        }
+    if "매출" in request.file_name or (request.full_path and "재무" in request.full_path):
+        category = "재무보고서"
+        summary = f"{request.date_str if hasattr(request, 'date_str') else '2024년'} 상반기 매출 실적에 대한 보고서입니다."
+        keywords = ["매출", "재무", "KPI"]
+    elif "계약" in request.file_name:
+        category = "계약서"
+        summary = "표준 용역 계약서 초안입니다."
+        keywords = ["Contract", "Legal"]
+
+    # 3. 결과 저장 (Separation of Concerns)
+    insight = AIInsightSchema(
+        file_id=request.file_id,
+        model_name="mock-gemini-pro",
+        model_version="v0.1-beta",
+        summary=summary,
+        keywords=keywords,
+        category=category,
+        analyzed_at=datetime.datetime.utcnow()
+    )
+    
+    # 3-1. Insight 저장
+    try:
+        # file_id를 문서 ID로 사용하면 1:1 관계, add() 쓰면 1:N 관계
+        # 여기서는 관리 편의상 file_id를 Key로 사용하여 1:1 유지 (덮어쓰기)
+        db.collection('ai_insights').document(request.file_id).set(insight.dict())
         
-    # 처리 흉내 (1초)
-    # time.sleep(1) 
-    
-    print(f"✅ [AI Service] Analysis Complete: {mock_result['virtual_path']}")
-    return mock_result
+        # [Phase 4] System Log: AI Analysis Completed
+        log_system_event(
+            event_type="AI_ANALYSIS_COMPLETED",
+            component="AnalysisService",
+            payload=insight.dict()
+        )
+        print(f"✅ [AI Service] Insight Saved: {request.file_id}")
+        
+        # 3-2. 원본 상태 업데이트 (완료)
+        db.collection('files').document(request.file_id).update({"ai_status": "completed"})
+        
+    except Exception as e:
+        log_system_event(
+            event_type="AI_ANALYSIS_FAILED",
+            component="AnalysisService",
+            payload={"file_id": request.file_id, "error": str(e)},
+            severity="ERROR"
+        )
+        print(f"❌ [AI Service] Save Failed: {e}")
+        db.collection('files').document(request.file_id).update({"ai_status": "failed"})
+
+    return insight.dict()

@@ -3,7 +3,10 @@ from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs
 from app.services.docai_service import process_documents_batch
-from app.services.log_service import log_activity
+from app.services.ingestion_service import ingest_file_content
+from app.services.log_service import log_user_action
+from app.models.log import ActionType
+from app.core.gcp_clients import db
 from pydantic import BaseModel
 from typing import List, Any, Dict
 
@@ -50,10 +53,12 @@ async def ingest_drive_file(
         print(f"[Warning] Failed to stamp department on file {request.file_id}: {e}")
 
     # [LogService] Ingest Log
-    log_activity(
+    # [LogService] Ingest Log
+    log_user_action(
         user=current_user,
-        action="ingest_drive_file",
-        resource=f"file:{request.file_id}",
+        action=ActionType.DOWNLOAD,
+        file_id=request.file_id,
+        success=True,
         details={
             "gcs_uri": result.get("gcs_uri"), 
             "size": result.get("size"),
@@ -151,10 +156,12 @@ async def process_drive_files_batch(
             })
 
     # [LogService] Process Batch Log
-    log_activity(
+    # [LogService] Process Batch Log
+    log_user_action(
         user=current_user,
-        action="process_docai_batch",
-        resource="batch",
+        action=ActionType.VIEW,
+        file_id="batch_process",
+        success=True,
         details={
             "total": len(request.items),
             "processed": processed_count,

@@ -1,14 +1,16 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from app.core.config import settings
 from app.core.gcp_clients import db
 from app.models.user import UserSchema
 
-# Token URL은 Frontend가 없으므로 지금은 단순히 형식만 맞춤
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+# [Fix] OAuth2PasswordBearer -> HTTPBearer (Token Paste Mode)
+# Google OAuth는 브라우저에서 토큰을 복사해오므로, Swagger UI에 단순 붙여넣기 기능이 필요함
+security = HTTPBearer()
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserSchema:
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> UserSchema:
+    token = credentials.credentials
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

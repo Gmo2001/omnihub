@@ -7,6 +7,11 @@ from app.models.user import UserSchema
 from app.core.config import settings
 from fastapi import HTTPException
 from google.auth.transport.requests import Request
+import uuid
+from app.core.gcp_clients import db
+from app.models.watch import WatchChannelSchema
+from datetime import datetime
+import time
 
 # GCS Configurations
 GCS_BUCKET_NAME = f"{settings.PROJECT_ID}-raw-files" # e.g. "omnihub-raw-files"
@@ -110,3 +115,81 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
         "mime_type": mime_type,
         "size": file_meta.get('size')
     }
+
+async def register_user_watch(user: UserSchema, base_url: str):
+    """
+    사용자의 Google Drive에 대한 푸시 알림 채널(Webhook)을 등록합니다.
+    이것이 '자동 감시(Auto-Watch)' 기능의 핵심입니다.
+    """
+    try:
+        drive_service = get_user_drive_service(user)
+        
+        # 0. 중복 방지 로직 (Optimization)
+        # 이미 해당 유저의 유효한 채널이 있는지 DB에서 검색
+        existing_channels = db.collection('watch_channels').where('user_email', '==', user.email).stream()
+        
+        current_time_ms = int(time.time() * 1000)
+        valid_until_threshold = current_time_ms + (24 * 60 * 60 * 1000) # 최소 24시간 이상 남았는지 확인
+
+        for doc in existing_channels:
+            data = doc.to_dict()
+            exp = data.get('expiration', 0)
+            
+            # 1. 만료 시간이 넉넉히 남았다면 -> 재등록 스킵 (Idempotency)
+            if exp > valid_until_threshold:
+                print(f"[Auto-Watch] 이미 유효한 채널이 존재합니다. (ID: {doc.id}, 만료: {exp}) -> 등록 스킵")
+                return # 아무것도 안 하고 종료 (Best Case)
+            
+            # 2. 만료되었거나 곧 만료됨 -> 기존 채널 정리 (Cleanup)
+            print(f"[Auto-Watch] 만료 임박/만료된 채널 정리: {doc.id}")
+            try:
+                # 구글에 stop 요청 (Resource ID 필요)
+                # 만료된 채널이라 stop이 실패할 수도 있지만 시도함
+                resource_id = data.get('resource_id')
+                if resource_id:
+                    drive_service.channels().stop(body={'id': doc.id, 'resourceId': resource_id}).execute()
+            except Exception as stop_error:
+                print(f"[Auto-Watch] 기존 채널 Stop 실패 (무시됨): {stop_error}")
+            
+            # DB에서 삭제
+            db.collection('watch_channels').document(doc.id).delete()
+
+
+        # 1. Webhook URL 구성
+        # base_url 예시: "https://omnihub-backend-xyz.a.run.app"
+        webhook_url = f"{base_url.rstrip('/')}/webhook/drive"
+        
+        # 2. Start Page Token 발급 (감시 시작점)
+        token_response = drive_service.changes().getStartPageToken().execute()
+        start_page_token = token_response.get('startPageToken')
+        
+        # 3. 채널 ID 생성 및 요청 본문 구성
+        channel_id = str(uuid.uuid4())
+        body = {
+            "id": channel_id,
+            "type": "web_hook",
+            "address": webhook_url,
+            # [Optional] token 필드를 추가하여 보안 강화 가능 (구글이 되돌려줌)
+            # "token": "security-token" 
+        }
+        
+        # 4. Watch 요청 실행
+        print(f"[Auto-Watch] 새 감시 채널 생성 요청: {user.email} -> {webhook_url}")
+        response = drive_service.changes().watch(body=body, pageToken=start_page_token).execute()
+        
+        # 5. DB에 채널 정보 저장 (watch_channels 컬렉션)
+        watch_data = WatchChannelSchema(
+            channel_id=channel_id,
+            resource_id=response['resourceId'],
+            user_email=user.email,
+            user_uid=user.uid,
+            webhook_url=webhook_url,
+            expiration=int(response.get('expiration', 0))
+        )
+        
+        db.collection('watch_channels').document(channel_id).set(watch_data.dict())
+        print(f"[Auto-Watch] 채널 등록 성공: {channel_id}")
+        
+    except Exception as e:
+        print(f"[Auto-Watch] 감시 등록 실패 ({user.email}): {e}")
+        # 로그인 프로세스를 방해하지 않기 위해 로그만 남기고 넘어감

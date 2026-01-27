@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from authlib.integrations.starlette_client import OAuth
 from app.core.config import settings
 from app.core.gcp_clients import db
 from app.models.user import UserSchema
 from datetime import datetime, timedelta
-from app.services.log_service import log_activity
+from app.services.log_service import log_user_action
+from app.models.log import ActionType
+from app.services.drive_service import register_user_watch
 from jose import jwt
 from passlib.context import CryptContext
 
@@ -24,7 +26,7 @@ oauth.register(
 
 # 2. 로그인 URL (Frontend -> Backend -> Google)
 @router.get("/auth/login")
-async def login(request: Request):
+async def login(request: Request, force_consent: bool = False):
     # redirect_uri는 Google Console에 등록한 주소와 정확히 일치해야 함
     # Cloud Run은 Load Balancer 뒤에 있어서 request.url_for가 'http'를 반환할 수 있음
     # 따라서 강제로 https로 변환하거나 ProxyHeadersMiddleware를 써야 하지만, 
@@ -35,14 +37,18 @@ async def login(request: Request):
         
     # access_type='offline' is required to get a refresh_token
     # prompt='consent' forces the consent screen to ensure we get a refresh_token
+    kwargs = {'access_type': 'offline'}
+    if force_consent:
+        kwargs['prompt'] = 'consent'
+        
     return await oauth.google.authorize_redirect(
-        request, redirect_uri, access_type='offline', prompt='consent'
+        request, redirect_uri, **kwargs
     )
 
 
 # 3. 콜백 처리 (Google -> Backend)
 @router.get("/auth/callback")
-async def auth_callback(request: Request):
+async def auth_callback(request: Request, background_tasks: BackgroundTasks):
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
@@ -113,12 +119,21 @@ async def auth_callback(request: Request):
     # [LogService] 로그인 활동 기록
     # current_user 객체를 구성해야 함 (DB에서 막 가져온 데이터 기반)
     current_user_obj = UserSchema(**user_ref.get().to_dict())
-    log_activity(
-        user=current_user_obj, 
-        action="login", 
-        resource="auth", 
+    log_user_action(
+        user=current_user_obj,
+        action=ActionType.VIEW, # 로그인 == 조회
+        file_id="auth",
+        success=True,
         details={"method": "google_oauth"}
     )
+
+    # [Auto-Watch] 백그라운드 작업으로 감시 등록 실행
+    # Base URL 추출 (Cloud Run의 HTTPS 프로토콜 처리)
+    base_url = str(request.base_url)
+    if "omnihub-backend" in base_url and "run.app" in base_url:
+        base_url = base_url.replace("http://", "https://")
+    
+    background_tasks.add_task(register_user_watch, current_user_obj, base_url)
 
     # 6. 자체 JWT 토큰 발급 (Frontend에게 줄 출입증)
     access_token = create_access_token(

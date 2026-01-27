@@ -80,6 +80,18 @@
         <h3>2단계: 로그인 시도</h3>
         <p>확인 버튼을 누르면 <b>브라우저가 백엔드의 로그인 페이지로 이동</b>합니다.</p>
         <p id="targetUrlDisplay" style="color: #666; font-size: 0.9em;">이동할 주소: (입력 대기 중...)</p>
+
+        <div style="margin-bottom: 15px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="forceConsent" style="width: auto;">
+                <span>🔄 <b>Refresh Token 강제 재발급</b> (Initial Setup)</span>
+            </label>
+            <small style="color: #d93025; display: block; margin-top: 5px;">
+                ⚠️ 주의: 너무 자주 체크하고 로그인하면 "Rate exceeded" 오류가 발생할 수 있습니다.<br>
+                최초 1회 설정 시에만 체크하세요.
+            </small>
+        </div>
+
         <button onclick="startLogin()">🚀 구글 로그인 하러 가기</button>
 
         <div class="info">
@@ -124,10 +136,21 @@
             }
 
             // 실제 이동 로직
-            const targetUrl = baseUrl.replace(/\/$/, "") + "/auth/login";
+            let targetUrl = baseUrl.replace(/\/$/, "") + "/auth/login";
+
+            // Force Consent 체크박스 확인
+            const forceConsent = document.getElementById('forceConsent').checked;
+            if (forceConsent) {
+                targetUrl += "?force_consent=true";
+            }
 
             // 사용자에게 알림 후 이동 (새 창으로 열기)
-            if (confirm(`로그인 창을 새 탭에서 엽니다.\n로그인 후 나오는 JSON에서 'access_token'을 복사해서\n이 창으로 돌아와주세요.`)) {
+            let msg = `로그인 창을 새 탭에서 엽니다.\n로그인 후 나오는 JSON에서 'access_token'을 복사해서\n이 창으로 돌아와주세요.`;
+            if (forceConsent) {
+                msg = "[주의] Refresh Token 강제 발급 모드입니다.\n구글 동의 화면이 나타납니다.\n\n" + msg;
+            }
+
+            if (confirm(msg)) {
                 window.open(targetUrl, '_blank');
             }
         }

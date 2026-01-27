@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query, Depends
 from app.core.gcp_clients import db, get_drive_service
-from app.services.log_service import log_activity
+from app.services.log_service import log_user_action
+from app.models.log import ActionType
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from typing import Optional
@@ -104,12 +105,13 @@ async def get_file(
         doc = doc_ref.get()
         
         if not doc.exists:
-            # [Phase 3] 실패 로그 (404 Not Found)
-            log_activity(
-                user=current_user, 
-                action="view_file", 
-                resource=f"file:{file_id}", 
-                details={"success": False, "error": "File not found"}
+            # [Phase 4] 실패 로그 (404 Not Found)
+            log_user_action(
+                user=current_user,
+                action=ActionType.VIEW,
+                file_id=file_id,
+                success=False,
+                details={"error": "File not found"}
             )
             raise HTTPException(status_code=404, detail="File not found")
         
@@ -122,16 +124,14 @@ async def get_file(
         
         # Background Task로 로그 저장
         background_tasks.add_task(
-            log_activity,
+            log_user_action,
             user=current_user,
-            action="view_file",
-            resource=f"file:{file_id}",
-            details={
-                "success": True,
-                "ip_address": ip,
-                "user_agent": ua,
-                "file_department_id": file_dept_id # [Phase 3] AI-B Check
-            }
+            action=ActionType.VIEW,
+            file_id=file_id,
+            file_dept_id=file_dept_id,
+            success=True,
+            ip_address=ip,
+            details={"user_agent": ua}
         )
         
         return {"message": "File access success", "file": file_info}
@@ -141,11 +141,13 @@ async def get_file(
             raise e
             
         # [Phase 3] 예상치 못한 에러 로그
-        log_activity(
+        # [Phase 4] 예상치 못한 에러 로그
+        log_user_action(
             user=current_user,
-            action="view_file",
-            resource=f"file:{file_id}",
-            details={"success": False, "error": str(e)}
+            action=ActionType.VIEW,
+            file_id=file_id,
+            success=False,
+            details={"error": str(e)}
         )
         raise e
 
@@ -167,25 +169,24 @@ async def download_file(
         file_dept_id = doc.to_dict().get("department_id") if doc.exists else None
         
         background_tasks.add_task(
-            log_activity,
+            log_user_action,
             user=current_user,
-            action="download_file",
-            resource=f"file:{file_id}",
-            details={
-                "success": True,
-                "ip_address": ip,
-                "user_agent": ua,
-                "file_department_id": file_dept_id # [Phase 3]
-            }
+            action=ActionType.DOWNLOAD,
+            file_id=file_id,
+            file_dept_id=file_dept_id,
+            success=True,
+            ip_address=ip,
+            details={"user_agent": ua}
         )
         
         return {"message": "Download started"}
         
     except Exception as e:
-        log_activity(
+        log_user_action(
             user=current_user,
-            action="download_file",
-            resource=f"file:{file_id}",
-            details={"success": False, "error": str(e)}
+            action=ActionType.DOWNLOAD,
+            file_id=file_id,
+            success=False,
+            details={"error": str(e)}
         )
         raise e
