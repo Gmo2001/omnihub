@@ -1,18 +1,14 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query, Depends
 from app.core.gcp_clients import db, get_drive_service
+from app.services.log_service import log_user_action
 from app.models.log import ActionType
-from app.services.log_service import LogService
-from app.services.log_service import LogService
-from typing import Optional
-from fastapi import Depends
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
-
+from typing import Optional
 
 #파일과 관련된 모든 요청을 처리하는 곳
 
 router = APIRouter()
-log_service = LogService()
 
 # 1. Real Drive Proxy API
 @router.get("/files/drive/proxy")
@@ -104,36 +100,57 @@ async def get_file(
     파일 상세 정보를 조회하고, 접근 로그를 남깁니다.
     """
     # 1. Real DB Query
-    doc_ref = db.collection('files').document(file_id)
-    doc = doc_ref.get()
-    
-    if not doc.exists:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    file_info = doc.to_dict()
-    
-    # 2. Log Integration (Real Context)
-    # JWT/Session에서 user_id를 추출
-    current_user_id = current_user.uid
- 
-    
-    ip = request.client.host if request.client else None
-    ua = request.headers.get("user-agent")
-    
-    # Background Task로 로그 저장
-    background_tasks.add_task(
-        log_service.create_log,
-        user_id=current_user_id,
-        file_id=file_id,
-        action=ActionType.VIEW,
-        success=True,
-        ip_address=ip,
-        user_agent=ua
-    )
-    
-    return {"message": "File access success", "file": file_info}
+    try:
+        doc_ref = db.collection('files').document(file_id)
+        doc = doc_ref.get()
+        
+        if not doc.exists:
+            # [Phase 4] 실패 로그 (404 Not Found)
+            log_user_action(
+                user=current_user,
+                action=ActionType.VIEW,
+                file_id=file_id,
+                success=False,
+                details={"error": "File not found"}
+            )
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        file_info = doc.to_dict()
+        file_dept_id = file_info.get("department_id") # [Phase 3]
+        
+        # 2. Log Integration (Real Context)
+        ip = request.client.host if request.client else None
+        ua = request.headers.get("user-agent")
+        
+        # Background Task로 로그 저장
+        background_tasks.add_task(
+            log_user_action,
+            user=current_user,
+            action=ActionType.VIEW,
+            file_id=file_id,
+            file_dept_id=file_dept_id,
+            success=True,
+            ip_address=ip,
+            details={"user_agent": ua}
+        )
+        
+        return {"message": "File access success", "file": file_info}
+        
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+            
+        # [Phase 3] 예상치 못한 에러 로그
+        # [Phase 4] 예상치 못한 에러 로그
+        log_user_action(
+            user=current_user,
+            action=ActionType.VIEW,
+            file_id=file_id,
+            success=False,
+            details={"error": str(e)}
+        )
+        raise e
 
-@router.post("/files/{file_id}/download")
 @router.post("/files/{file_id}/download")
 async def download_file(
     file_id: str, 
@@ -141,21 +158,35 @@ async def download_file(
     background_tasks: BackgroundTasks,
     current_user: UserSchema = Depends(get_current_user)
 ):
-    current_user_id = current_user.uid
-
     
     # [Log Integration] 다운로드 로그
     ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent")
     
-    background_tasks.add_task(
-        log_service.create_log,
-        user_id=current_user_id,
-        file_id=file_id,
-        action=ActionType.DOWNLOAD,
-        success=True,
-        ip_address=ip,
-        user_agent=ua
-    )
-    
-    return {"message": "Download started"}
+    # [Phase 3] 파일 정보 조회하여 부서 ID 확보 (DB 조회 Cost 추가됨)
+    try:
+        doc = db.collection('files').document(file_id).get()
+        file_dept_id = doc.to_dict().get("department_id") if doc.exists else None
+        
+        background_tasks.add_task(
+            log_user_action,
+            user=current_user,
+            action=ActionType.DOWNLOAD,
+            file_id=file_id,
+            file_dept_id=file_dept_id,
+            success=True,
+            ip_address=ip,
+            details={"user_agent": ua}
+        )
+        
+        return {"message": "Download started"}
+        
+    except Exception as e:
+        log_user_action(
+            user=current_user,
+            action=ActionType.DOWNLOAD,
+            file_id=file_id,
+            success=False,
+            details={"error": str(e)}
+        )
+        raise e

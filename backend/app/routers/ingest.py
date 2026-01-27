@@ -3,7 +3,10 @@ from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs
 from app.services.docai_service import process_documents_batch
-from app.services.log_service import log_activity
+from app.services.ingestion_service import ingest_file_content
+from app.services.log_service import log_user_action
+from app.models.log import ActionType
+from app.core.gcp_clients import db
 from pydantic import BaseModel
 from typing import List, Any, Dict
 
@@ -38,12 +41,29 @@ async def ingest_drive_file(
         
     result = stream_file_to_gcs(current_user, request.file_id)
     
+    # [Phase 3] Ingestor Inheritance: 파일 소속 부서 할당 (Ingestor가 주인)
+    # 구글 드라이브에는 없는 '부서' 개념을 여기서 최초 불어넣음
+    try:
+        from app.core.gcp_clients import db
+        db.collection('files').document(request.file_id).update({
+            "department": current_user.department,
+            "department_id": current_user.department_id
+        })
+    except Exception as e:
+        print(f"[Warning] Failed to stamp department on file {request.file_id}: {e}")
+
     # [LogService] Ingest Log
-    log_activity(
+    # [LogService] Ingest Log
+    log_user_action(
         user=current_user,
-        action="ingest_drive_file",
-        resource=f"file:{request.file_id}",
-        details={"gcs_uri": result.get("gcs_uri"), "size": result.get("size")}
+        action=ActionType.DOWNLOAD,
+        file_id=request.file_id,
+        success=True,
+        details={
+            "gcs_uri": result.get("gcs_uri"), 
+            "size": result.get("size"),
+            "file_department_id": current_user.department_id # 상속되었으므로 동일
+        }
     )
     
     return {
@@ -98,10 +118,23 @@ async def process_drive_files_batch(
             doc_id = doc_output.get("doc_id", f"unknown_{original_item.file_id}")
             
             # 메타데이터 업데이트 (저장 시점, 요청자 등)
+            # [Phase 3] Metadata Handoff Expansion
+            file_meta_snapshot = db.collection('files').document(original_item.file_id).get()
+            file_meta = file_meta_snapshot.to_dict() if file_meta_snapshot.exists else {}
+
             doc_output["_handoff_meta"] = {
                 "saved_at": "timestamp", # 실제로는 datetime.now().isoformat()
-                "requested_by": current_user.email
+                "requested_by": current_user.email,
+                "user_department": current_user.department,
+                "user_department_id": current_user.department_id,
+                "file_created_at": str(file_meta.get("created_at", "")),
+                "file_owner": file_meta.get("owners", [])
             }
+
+            # source 영역에도 추가 정보 주입
+            if "source" in doc_output:
+                doc_output["source"]["drive_file_id"] = original_item.file_id
+                doc_output["source"]["file_name"] = file_meta.get("name")
             
             # Upsert
             collection_ref.document(doc_id).set(doc_output)
@@ -123,10 +156,12 @@ async def process_drive_files_batch(
             })
 
     # [LogService] Process Batch Log
-    log_activity(
+    # [LogService] Process Batch Log
+    log_user_action(
         user=current_user,
-        action="process_docai_batch",
-        resource="batch",
+        action=ActionType.VIEW,
+        file_id="batch_process",
+        success=True,
         details={
             "total": len(request.items),
             "processed": processed_count,
