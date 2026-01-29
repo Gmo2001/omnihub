@@ -150,12 +150,10 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         gcs_uri = gcs_result.get('gcs_uri')
                         
                         # DB에 GCS URI 업데이트
-                        db.collection('files').document(file_id).update({"gcs_uri": gcs_uri})
+                        db.collection('files').document(file_id).update({"gcsUri": gcs_uri})
                         print(f"GCS 스트리밍 완료 ({file_obj.name}): {gcs_uri}")
                         
                         # 파일 객체에도 업데이트 (AI에게 전달용)
-                        file_obj.gcs_uri = gcs_uri
-                        
                         file_obj.gcs_uri = gcs_uri
                         
                     except Exception as gcs_error:
@@ -177,7 +175,7 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         from app.services.ai_a.analysis_service import analyze_file_content
                         
                         # AI 상태 'processing'으로 업데이트
-                        db.collection('files').document(file_id).update({"ai_status": "processing"})
+                        db.collection('files').document(file_id).update({"aiStatus": "processing"})
 
                         # [Phase 3] AI Handoff Object 생성 (DTO)
                         ai_request = AIAnalysisRequest(
@@ -202,7 +200,7 @@ async def process_drive_changes(channel_id: Optional[str] = None):
             except Exception as e:
                 print(f"파일 처리 실패 {file_id}: {e}")
                 # 에러 발생 시 상태 업데이트
-                db.collection('files').document(file_id).set({"ai_status": "failed", "error_msg": str(e)}, merge=True)
+                db.collection('files').document(file_id).set({"aiStatus": "failed", "errorMsg": str(e)}, merge=True)
 
         if 'newStartPageToken' in results:
             # 더 이상 변경사항이 없으면 newStartPageToken을 저장하고 종료

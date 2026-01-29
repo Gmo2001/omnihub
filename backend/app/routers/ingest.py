@@ -1,9 +1,12 @@
+from datetime import datetime # Added
+from app.core.logger import log_system_event # Added
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
-from app.services.drive_service import stream_file_to_gcs
+from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
 from app.services.docai_service import process_documents_batch
-from app.services.ingestion_service import ingest_file_content
+from app.services.ingestion_service import ingest_file_content, process_and_catalog_file
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
 from app.core.gcp_clients import db
@@ -20,6 +23,9 @@ router = APIRouter(
 class IngestRequest(BaseModel):
     file_id: str
 
+class SyncFolderRequest(BaseModel):
+    folder_id: str
+
 class ProcessItem(BaseModel):
     file_id: str
     gcs_uri: str
@@ -35,41 +41,132 @@ async def ingest_drive_file(
 ):
     """
     [Phase 2] 사용자의 구글 드라이브 파일을 GCS(Google Cloud Storage)로 스트리밍 전송합니다.
+    [Refactoring] 공통 로직(process_and_catalog_file)을 사용하도록 변경됨.
     """
     if not current_user.google_access_token:
         raise HTTPException(status_code=400, detail="User is not connected to Google Drive")
         
-    result = stream_file_to_gcs(current_user, request.file_id)
-    
-    # [Phase 3] Ingestor Inheritance: 파일 소속 부서 할당 (Ingestor가 주인)
-    # 구글 드라이브에는 없는 '부서' 개념을 여기서 최초 불어넣음
     try:
-        from app.core.gcp_clients import db
-        db.collection('files').document(request.file_id).update({
-            "department": current_user.department,
-            "department_id": current_user.department_id
-        })
-    except Exception as e:
-        print(f"[Warning] Failed to stamp department on file {request.file_id}: {e}")
-
-    # [LogService] Ingest Log
-    # [LogService] Ingest Log
-    log_user_action(
-        user=current_user,
-        action=ActionType.DOWNLOAD,
-        file_id=request.file_id,
-        success=True,
-        details={
-            "gcs_uri": result.get("gcs_uri"), 
-            "size": result.get("size"),
-            "file_department_id": current_user.department_id # 상속되었으므로 동일
+        # Refactored Logic
+        result = process_and_catalog_file(current_user, request.file_id)
+        
+        return {
+            "status": "success",
+            "message": "File streamed to GCS successfully",
+            "data": result
         }
-    )
-    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def sync_folder_task(user: UserSchema, folder_id: str):
+    """
+    Background Task for Folder Sync
+    """
+    try:
+        start_time = datetime.now()
+        print(f"[Sync-Task] Starting background sync for {folder_id}")
+        all_files = list_files_in_folder_recursive(user, folder_id)
+        
+        processed_count = 0
+        failed_list = []
+        
+        # [System Status] Start Tracking
+        db.collection("system_status").document(folder_id).set({
+            "status": "running",
+            "start_time": start_time,
+            "total_files": len(all_files),
+            "processed": 0
+        })
+
+        print(f"[Sync-Task] Found {len(all_files)} files. Starting ingestion...")
+        
+        for file_item in all_files:
+            file_id = file_item['id']
+            file_name = file_item['name']
+            virtual_path = file_item.get('virtual_path')
+            
+            try:
+                process_and_catalog_file(user, file_id, virtual_path=virtual_path)
+                processed_count += 1
+                
+                # [Optional] Update progress periodically (e.g. every 5 files)
+                if processed_count % 5 == 0:
+                     db.collection("system_status").document(folder_id).update({"processed": processed_count})
+
+            except Exception as e:
+                print(f"[Sync-Task] Failed {file_name} ({file_id}): {e}")
+                failed_list.append({
+                    "file_id": file_id,
+                    "name": file_name,
+                    "error": str(e)
+                })
+
+        # Summary Log
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        # [System Status] Complete Tracking
+        db.collection("system_status").document(folder_id).update({
+            "status": "completed",
+            "end_time": end_time,
+            "duration": duration,
+            "processed": processed_count,
+            "failed": len(failed_list)
+        })
+        
+        # [Enrichment] Richer Context for AI-B
+        
+        # [Enrichment] Richer Context for AI-B
+        details_payload = {
+            "activity": "folder_sync_background",
+            "folderId": folder_id,
+            "totalFound": len(all_files),
+            "processedCount": processed_count,
+            "failedCount": len(failed_list),
+            "durationSeconds": duration,
+            "failedItems": failed_list[:10] # Top 10 failures only to save space
+        }
+
+        log_user_action(
+            user=user,
+            action=ActionType.VIEW,
+            file_id=folder_id,
+            success=True,
+            details=details_payload
+        )
+        
+        # [System Log] Also log to system stream for operational monitoring
+        log_system_event(
+            event_type="SYNC_COMPLETED",
+            component="IngestRouter",
+            payload=details_payload
+        )
+        print(f"[Sync-Task] Completed. Processed: {processed_count}/{len(all_files)}")
+
+    except Exception as e:
+        print(f"[Sync-Task] Critical Error: {e}")
+
+@router.post("/sync-folder")
+def sync_drive_folder(
+    request: SyncFolderRequest,
+    background_tasks: BackgroundTasks,
+    current_user: UserSchema = Depends(get_current_user)
+):
+    """
+    [Feature] Recursive Folder Sync (Background)
+    지정된 폴더의 동기화 작업을 백그라운드에서 실행하고, 즉시 응답을 반환합니다.
+    (Timeout 방지)
+    """
+    if not current_user.google_access_token:
+        raise HTTPException(status_code=400, detail="User is not connected to Google Drive")
+
+    # Start Background Task
+    background_tasks.add_task(sync_folder_task, current_user, request.folder_id)
+
     return {
-        "status": "success",
-        "message": "File streamed to GCS successfully",
-        "data": result
+        "status": "accepted",
+        "message": "Folder sync started in background.",
+        "folder_id": request.folder_id
     }
 
 @router.post("/process/batch")

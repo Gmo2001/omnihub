@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
+from app.utils.id_utils import to_internal_id
 from authlib.integrations.starlette_client import OAuth
 from app.core.config import settings
 from app.core.gcp_clients import db
@@ -85,16 +86,16 @@ async def auth_callback(request: Request, background_tasks: BackgroundTasks):
         if settings.SUPER_ADMIN_EMAIL and email == settings.SUPER_ADMIN_EMAIL:
             final_role = "admin"
 
-        # 로그인 시간 및 토큰 업데이트
+        # 로그인 시간 및 토큰 업데이트 (CamelCase keys)
         update_data = {
-            "last_login_at": datetime.now(),
-            "photo_url": picture,
-            "display_name": name,
-            "google_access_token": access_token_google,
+            "lastLoginAt": datetime.now(),
+            "photoUrl": picture,
+            "displayName": name,
+            "googleAccessToken": access_token_google,
             "role": final_role 
         }
         if refresh_token_google:
-            update_data["google_refresh_token"] = refresh_token_google
+            update_data["googleRefreshToken"] = refresh_token_google
             
         user_ref.update(update_data)
     else:
@@ -104,7 +105,7 @@ async def auth_callback(request: Request, background_tasks: BackgroundTasks):
             final_role = "admin"
 
         new_user = UserSchema(
-            uid=str(email), # 내부 관리용 UID도 이메일로 통일하거나 Google UID 사용
+            userId=to_internal_id('usr_', str(email)), # uid -> userId (Prefix 적용)
             email=email,
             display_name=name,
             photo_url=picture,
@@ -114,11 +115,14 @@ async def auth_callback(request: Request, background_tasks: BackgroundTasks):
             google_access_token=access_token_google,
             google_refresh_token=refresh_token_google
         )
-        user_ref.set(new_user.dict())
+        # [Fix] CamelCase Enforcement
+        user_ref.set(new_user.dict(by_alias=True))
         
     # [LogService] 로그인 활동 기록
     # current_user 객체를 구성해야 함 (DB에서 막 가져온 데이터 기반)
-    current_user_obj = UserSchema(**user_ref.get().to_dict())
+    # DB에는 camelCase로 저장되어 있을 수 있음 -> UserSchema는 alias로 처리하므로 호환됨
+    user_data = user_ref.get().to_dict()
+    current_user_obj = UserSchema(**user_data)
     log_user_action(
         user=current_user_obj,
         action=ActionType.VIEW, # 로그인 == 조회

@@ -104,7 +104,8 @@ async def get_file(
         doc_ref = db.collection('files').document(file_id)
         doc = doc_ref.get()
         
-        if not doc.exists:
+        if not doc.exists:  
+            
             # [Phase 4] 실패 로그 (404 Not Found)
             log_user_action(
                 user=current_user,
@@ -116,7 +117,7 @@ async def get_file(
             raise HTTPException(status_code=404, detail="File not found")
         
         file_info = doc.to_dict()
-        file_dept_id = file_info.get("department_id") # [Phase 3]
+        # [Removed] file_dept_id logic
         
         # 2. Log Integration (Real Context)
         ip = request.client.host if request.client else None
@@ -128,7 +129,6 @@ async def get_file(
             user=current_user,
             action=ActionType.VIEW,
             file_id=file_id,
-            file_dept_id=file_dept_id,
             success=True,
             ip_address=ip,
             details={"user_agent": ua}
@@ -165,15 +165,13 @@ async def download_file(
     
     # [Phase 3] 파일 정보 조회하여 부서 ID 확보 (DB 조회 Cost 추가됨)
     try:
-        doc = db.collection('files').document(file_id).get()
-        file_dept_id = doc.to_dict().get("department_id") if doc.exists else None
+        # doc = db.collection('files').document(file_id).get()  <-- DB 조회 불필요하면 제거 가능하지만, 파일 존재 체크용으로 둠
         
         background_tasks.add_task(
             log_user_action,
             user=current_user,
             action=ActionType.DOWNLOAD,
             file_id=file_id,
-            file_dept_id=file_dept_id,
             success=True,
             ip_address=ip,
             details={"user_agent": ua}
