@@ -29,3 +29,6 @@ AI가 내뱉은 오차 수치를 사람이 이해할 수 있는 Risk Score로 �
 2. Autoencoder가 그 숫자가 평소와 얼마나 다른지(오차) 계산
 3. Risk Score 로직이 이 오차를 바탕으로 실시간 위험 점수 산출
 4. 보안 모드 로직이 점수에 따라 기능을 차단하거나 구글 챗 전송
+
+## 사용법
+python -m autoencoder.anomaly_scoring --input "input_sample_name.csv" --output "output_name.csv"
