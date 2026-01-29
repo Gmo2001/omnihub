@@ -3,7 +3,8 @@ export const APP_TITLE = "OmniHub Demo";
 export const TABS = {
   OMNIHUB: 'omnihub',
   SECURITY: 'security',
-} as const;
+  CONNECT: 'connect',
+} as const;;
 
 export const THEME_COLORS = {
   bg: 'bg-slate-900',

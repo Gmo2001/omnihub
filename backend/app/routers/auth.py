@@ -155,6 +155,145 @@ async def auth_callback(request: Request, background_tasks: BackgroundTasks):
         }
     }
 
+
+from google_auth_oauthlib.flow import Flow
+
+class GoogleAuthCode(BaseModel):
+    code: str
+
+# 7. Frontend Code Exchange (Offline Access Support)
+@router.post("/auth/google")
+async def exchange_auth_code(data: GoogleAuthCode, background_tasks: BackgroundTasks):
+    try:
+        # 1. Create Flow
+        # Note: server_metadata_url is not directly supported in all Flow constructors easily via dict, 
+        # but client_config works. We use the settings.
+        client_config = {
+            "web": {
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        }
+        
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.readonly']
+        )
+        
+        # 'postmessage' is required for the React "Implicit" -> "Code" flow via popup
+        flow.redirect_uri = 'postmessage'
+        
+        # 2. Exchange Code for Credentials (Access + Refresh Token)
+        flow.fetch_token(code=data.code)
+        credentials = flow.credentials
+        
+        # 3. Get User Info from ID Token (included in credentials)
+        # credentials.id_token contains the JWT with user info
+        if not credentials.id_token:
+             # Fallback: Fetch from userinfo endpoint if id_token is missing (rare but possible)
+             session = flow.authorized_session()
+             user_info = session.get('https://www.googleapis.com/userinfo/v2/me').json()
+             email = user_info.get('email')
+             uid = user_info.get('id')
+             name = user_info.get('name')
+             picture = user_info.get('picture')
+        else:
+             import json
+             import base64
+             # Basic decode without verify (verify done by fetch_token ideally, or use id_token.verify_token)
+             # simpler: use id_token verifier correctly
+             from google.oauth2 import id_token
+             from google.auth.transport import requests as google_requests
+             
+             id_info = id_token.verify_oauth2_token(
+                credentials.id_token, 
+                google_requests.Request(), 
+                settings.GOOGLE_CLIENT_ID
+             )
+             email = id_info.get('email')
+             uid = id_info.get('sub')
+             name = id_info.get('name')
+             picture = id_info.get('picture')
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Code Exchange Failed: {str(e)}")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Could not retrieve email")
+
+    # --- User Upsert Logic ---
+    user_ref = db.collection('users').document(str(email))
+    existing_user_snapshot = user_ref.get()
+    
+    final_role = "user"
+
+    if existing_user_snapshot.exists:
+        existing_data = existing_user_snapshot.to_dict()
+        final_role = existing_data.get('role', 'user')
+        
+        if settings.SUPER_ADMIN_EMAIL and email == settings.SUPER_ADMIN_EMAIL:
+            final_role = "admin"
+
+        update_data = {
+            "lastLoginAt": datetime.now(),
+            "photoUrl": picture,
+            "displayName": name,
+            "role": final_role,
+            "googleAccessToken": credentials.token
+        }
+        if credentials.refresh_token:
+            update_data["googleRefreshToken"] = credentials.refresh_token
+            
+        user_ref.update(update_data)
+    else:
+        if settings.SUPER_ADMIN_EMAIL and email == settings.SUPER_ADMIN_EMAIL:
+            final_role = "admin"
+
+        new_user = UserSchema(
+            userId=to_internal_id('usr_', str(email)),
+            email=email,
+            display_name=name,
+            photo_url=picture,
+            department="Unknown", 
+            department_id="UNKNOWN",
+            role=final_role,
+            google_access_token=credentials.token,
+            google_refresh_token=credentials.refresh_token
+        )
+        user_ref.set(new_user.dict(by_alias=True))
+    
+    # Log Action
+    user_data = user_ref.get().to_dict()
+    current_user_obj = UserSchema(**user_data)
+    log_user_action(
+        user=current_user_obj,
+        action=ActionType.VIEW,
+        file_id="auth",
+        success=True,
+        details={"method": "google_code_flow"}
+    )
+    
+    # Auto-Watch
+    background_tasks.add_task(register_user_watch, current_user_obj, "https://omnihub-backend-707724932002.asia-northeast3.run.app")
+
+    # Issue JWT
+    access_token = create_access_token(
+        data={"sub": str(email), "email": email, "role": final_role}
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_info": {
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "role": final_role
+        }
+    }
+
 # JWT 생성 유틸리티
 # 구글 토큰은 구글 꺼니까, 우리 시스템 전용 "출입증"을 새로 만들어줍니다.
 def create_access_token(data: dict):

@@ -55,6 +55,7 @@ class UserSchema(CamelModel):
     
     # User Settings (Optional)
     preferences: dict = Field(default_factory=dict) # 알림 설정 등
+    monitored_folder_ids: List[str] = Field(default_factory=list) # [Privacy] Whitelisted Folder IDs
 
 class UserResponse(UserSchema):
     pass

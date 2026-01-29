@@ -310,7 +310,7 @@ def list_files_in_folder_recursive(user: UserSchema, folder_id: str) -> list:
             # 1. 현재 폴더 내의 파일 및 폴더 조회
             # trashed = false: 휴지통 제외
             query = f"'{current_folder_id}' in parents and trashed = false"
-            fields = "nextPageToken, files(id, name, mimeType, size, parents)"
+            fields = "nextPageToken, files(id, name, mimeType, size, parents, modifiedTime)"
             
             results = drive_service.files().list(
                 q=query,
