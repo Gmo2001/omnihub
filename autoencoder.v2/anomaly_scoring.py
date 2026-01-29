@@ -54,8 +54,8 @@ def run(input_path: str, output_path: str):
 
     # 3) 피처 선택 (빅쿼리 CSV 기준으로 숫자 컬럼만)
     feature_cols = [
-    "user_downloads_5m",
-    "z_pos",
+    "userDownloads5m",
+    "zPos",
     ]   
     
     X = df[feature_cols]

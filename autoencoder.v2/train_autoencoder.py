@@ -60,7 +60,7 @@ def fit_autoencoder(X: np.ndarray):
     baseline = {
         "train_mean": train_mean,
         "train_std": train_std,
-        "p95": p95,
+        "p95_threshold": p95,
     }
 
     return model, scaler, baseline
