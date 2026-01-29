@@ -40,3 +40,13 @@ def google_verification():
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "OmniHub Backend"}
+
+# [Frontend] Serve Static Files
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Create static dir if not exists
+if not os.path.exists("static"):
+    os.makedirs("static")
+
+app.mount("/console", StaticFiles(directory="static", html=True), name="static")

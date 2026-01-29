@@ -4,7 +4,7 @@ from app.models.file import FileSchema
 
 def resolve_full_path(service, parents, current_path=""):
     """
-    재귀적으로 상위 폴더를 조회하여 전체 경로를 구성합니다.
+    재귀적으로 상위 폴더를 조회하여 전체 경로를 구성합ingest_file_content니다.
     예: /Shared/2024/Project
     (주의: API 호출이 많아질 수 있으므로 캐싱 권장, 일단 단순 구현)
     """

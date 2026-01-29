@@ -9,6 +9,7 @@ from app.schemas.ai_request import AIAnalysisRequest
 import datetime
 from typing import Optional
 from app.core.logger import log_system_event
+from app.utils.id_utils import to_internal_id # Added import
 
 router = APIRouter()
 
@@ -36,23 +37,125 @@ async def handle_drive_webhook(
 ):
     """
     구글 드라이브로부터 변경 알림(Push Notification)을 수신하는 API입니다.
+    [Real-time] 변경된 파일만 즉시 처리합니다.
+    [Privacy] Whitelist(monitored_folder_ids)에 포함된 폴더의 파일만 처리합니다.
     """
     print(f"[Webhook] Resource State: {x_goog_resource_state}, Channel ID: {x_goog_channel_id}")
 
-    # 1. Sync 알림 (채널 생성 시 최초 1회 발생, 또는 갱신 시)
+    # 1. Sync 알림
     if x_goog_resource_state == "sync":
-        print(f"Channel {x_goog_channel_id} synced successfully. Watching resource: {x_goog_resource_id}")
+        print(f"Channel {x_goog_channel_id} synced successfully.")
         return {"status": "ok"}
 
-    # 2. 변경 알림 (Add, Update, Trash 등) - 실제 내용은 알려주지 않음
+    # 2. 변경 알림
     if x_goog_resource_state in ["add", "update", "trash", "change"]:
-        print("Change detected in Drive! Fetching changes...")
+        # 2-1. 채널 ID로 유저 식별
+        channels = db.collection('watch_channels').where('channel_id', '==', x_goog_channel_id).stream()
+        channel_doc = next(channels, None)
         
-        # Webhook은 '뭔가 변했다'만 알려주므로, 실제 변경사항은 changes().list()로 조회해야 함
-        # 백그라운드 태스크로 위임하여 Webhook 요청에 빠르게 응답 (구글 타임아웃 방지)
-        # [Fix] 인자를 명시적으로 전달 (Keyword Argument)
-        background_tasks.add_task(process_drive_changes, channel_id=x_goog_channel_id)
+        if not channel_doc:
+            print(f"[Webhook] Unknown Channel ID: {x_goog_channel_id}. Ignoring.")
+            return {"status": "unknown_channel"}
+            
+        channel_data = channel_doc.to_dict()
+        user_email = channel_data.get('user_email')
+        
+        # 유저 객체 복원
+        user_ref = db.collection('users').document(user_email)
+        user_snap = user_ref.get()
+        if not user_snap.exists:
+            return {"status": "user_not_found"}
+            
+        user = UserSchema(**user_snap.to_dict())
+        monitored_ids = user.monitored_folder_ids # [Privacy] Whitelist
+        
+        # 2-2. Start Page Token 가져오기
+        saved_token = get_page_token(user_email)
+        
+        try:
+            drive_service = get_user_drive_service(user)
+            
+            # 2-3. 변경사항 조회
+            response = drive_service.changes().list(
+                pageToken=saved_token,
+                fields="newStartPageToken, nextPageToken, changes(fileId, removed, file(id, name, mimeType, modifiedTime, trashed, parents))",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            
+            changes = response.get('changes', [])
+            new_token = response.get('newStartPageToken')
+            
+            print(f"[Webhook] Detected {len(changes)} changes for {user_email}.")
+            
+            for change in changes:
+                file_id = change.get('fileId')
+                file_item = change.get('file')
+                
+                # [Privacy Guard] Whitelist Check
+                # monitored_ids가 비어있으면(초기 상태) 일단 다 허용하거나, 다 막아야 함.
+                # 정책: "비어있으면 모든 파일 허용" vs "비어있으면 아무것도 안 함".
+                # 사용자가 편의를 위해 "비어있으면 허용"으로 가되, 하나라도 있으면 필터링.
+                if monitored_ids and file_item:
+                    is_allowed = False
+                    
+                    # A. 직계 부모 확인
+                    file_parents = file_item.get('parents', [])
+                    if any(pid in monitored_ids for pid in file_parents):
+                        is_allowed = True
+                    
+                    # B. 조상 추적 (Ancestry Check) - Max 5 levels
+                    if not is_allowed and file_parents:
+                        current_pid = file_parents[0] 
+                        for _ in range(5):
+                            if current_pid in monitored_ids:
+                                is_allowed = True
+                                break
+                            try:
+                                # 부모의 부모 조회 (Cache 권장되지만, 빈도가 낮으므로 직접 호출)
+                                p_meta = drive_service.files().get(
+                                    fileId=current_pid, fields="parents"
+                                ).execute()
+                                p_parents = p_meta.get('parents')
+                                if not p_parents: break
+                                current_pid = p_parents[0]
+                            except:
+                                break
+                    
+                    if not is_allowed:
+                        print(f"[Privacy] Blocked {file_id}: Not in monitored folders.")
+                        continue # Skip this file
 
+                # A. 파일 삭제
+                if change.get('removed') or (file_item and file_item.get('trashed')):
+                    print(f"[Webhook] File removed/trashed: {file_id}")
+                    auth_fil_id = to_internal_id('fil_', file_id)
+                    db.collection('files').document(auth_fil_id).update({
+                        "trashed": True, 
+                        "status": "deleted",
+                        "updatedAt": datetime.datetime.now()
+                    })
+                    continue
+                
+                # B. 파일 추가/수정
+                if file_item:
+                    print(f"[Webhook] Processing change: {file_item.get('name')} ({file_id})")
+                    from app.services.ingestion_service import process_and_catalog_file
+                    
+                    background_tasks.add_task(
+                        process_and_catalog_file,
+                        user=user,
+                        file_id=file_id,
+                        drive_meta=file_item
+                    )
+
+            # 2-4. 새로운 Page Token 저장
+            if new_token:
+                save_page_token(new_token, user_email)
+                
+        except Exception as e:
+            print(f"[Webhook] Error processing changes: {e}")
+            
     return {"status": "processed"}
 
 async def process_drive_changes(channel_id: Optional[str] = None):
@@ -150,12 +253,10 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         gcs_uri = gcs_result.get('gcs_uri')
                         
                         # DB에 GCS URI 업데이트
-                        db.collection('files').document(file_id).update({"gcs_uri": gcs_uri})
+                        db.collection('files').document(file_id).update({"gcsUri": gcs_uri})
                         print(f"GCS 스트리밍 완료 ({file_obj.name}): {gcs_uri}")
                         
                         # 파일 객체에도 업데이트 (AI에게 전달용)
-                        file_obj.gcs_uri = gcs_uri
-                        
                         file_obj.gcs_uri = gcs_uri
                         
                     except Exception as gcs_error:
@@ -177,7 +278,7 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         from app.services.ai_a.analysis_service import analyze_file_content
                         
                         # AI 상태 'processing'으로 업데이트
-                        db.collection('files').document(file_id).update({"ai_status": "processing"})
+                        db.collection('files').document(file_id).update({"aiStatus": "processing"})
 
                         # [Phase 3] AI Handoff Object 생성 (DTO)
                         ai_request = AIAnalysisRequest(
@@ -202,7 +303,7 @@ async def process_drive_changes(channel_id: Optional[str] = None):
             except Exception as e:
                 print(f"파일 처리 실패 {file_id}: {e}")
                 # 에러 발생 시 상태 업데이트
-                db.collection('files').document(file_id).set({"ai_status": "failed", "error_msg": str(e)}, merge=True)
+                db.collection('files').document(file_id).set({"aiStatus": "failed", "errorMsg": str(e)}, merge=True)
 
         if 'newStartPageToken' in results:
             # 더 이상 변경사항이 없으면 newStartPageToken을 저장하고 종료

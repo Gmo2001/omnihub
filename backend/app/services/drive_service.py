@@ -10,6 +10,7 @@ from google.auth.transport.requests import Request
 import uuid
 from app.core.gcp_clients import db
 from app.models.watch import WatchChannelSchema
+from app.utils.id_utils import to_internal_id, to_external_id
 from datetime import datetime
 import time
 
@@ -52,9 +53,14 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
     
     # 1. Get File Metadata
     try:
+        # Google API requires raw ID (no prefix)
+        raw_file_id = to_external_id('fil_', file_id)
+        
         file_meta = drive_service.files().get(
-            fileId=file_id, 
-            fields="id, name, mimeType, size"
+            fileId=raw_file_id, 
+            # [Fix] Request full metadata for Firestore cataloging
+            fields="id, name, mimeType, size, createdTime, modifiedTime, parents, owners, webViewLink, iconLink, hasThumbnail, thumbnailLink, trashed",
+            supportsAllDrives=True
         ).execute()
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"File not found in Drive: {str(e)}")
@@ -70,22 +76,36 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
         if "document" in mime_type:
             export_mime = "application/pdf"
             file_ext = ".pdf"
-            request = drive_service.files().export_media(fileId=file_id, mimeType=export_mime)
+            request = drive_service.files().export_media(fileId=raw_file_id, mimeType=export_mime)
         else:
              # Skip or handle Sheets/Slides later
              # For now, only allow PDF/Docs
              raise HTTPException(status_code=400, detail=f"Unsupported Workspace file type: {mime_type}")
     else:
         # Binary download for regular files (PDF, JPG, etc.)
-        request = drive_service.files().get_media(fileId=file_id)
+        request = drive_service.files().get_media(fileId=raw_file_id)
         file_ext = "" 
 
     # 2. Prepare GCS Upload
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
     
-    # Path: raw/{user_uid}/{file_id}/{filename}
-    blob_name = f"raw/{user.uid}/{file_id}/{file_name}{file_ext}"
+    # [Feature Upgrade] Category-based GCS Path
+    # AI processing logic depends on file type.
+    category = "etc"
+    if mime_type == "application/pdf" or (file_ext == ".pdf"):
+        category = "pdf"
+    elif mime_type.startswith("image/"):
+        category = "image"
+    
+    
+    # Path: raw/{user_uid}/{category}/{file_id}/{filename}
+    # GCS Path should use internal ID (fil_xxx) or raw ID?
+    # Consistency -> Internal ID (fil_xxx). 
+    # But wait, User UID in path... UserSchema has .uid property which access .user_id (usr_xxx).
+    # New Standard: raw/usr_Alice/pdf/fil_123/doc.pdf
+    
+    blob_name = f"raw/{user.user_id}/{category}/{to_internal_id('fil_', raw_file_id)}/{file_name}{file_ext}"
     blob = bucket.blob(blob_name)
 
     # 3. Stream Transfer (Download -> Upload)
@@ -113,7 +133,8 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
         "gcs_uri": gcs_uri,
         "file_name": file_name,
         "mime_type": mime_type,
-        "size": file_meta.get('size')
+        "size": file_meta.get('size'),
+        "metadata": file_meta # [Fix] Pass full metadata to caller
     }
 
 async def register_user_watch(user: UserSchema, base_url: str):
@@ -187,9 +208,152 @@ async def register_user_watch(user: UserSchema, base_url: str):
             expiration=int(response.get('expiration', 0))
         )
         
-        db.collection('watch_channels').document(channel_id).set(watch_data.dict())
+        db.collection('watch_channels').document(channel_id).set(watch_data.dict(by_alias=True))
         print(f"[Auto-Watch] 채널 등록 성공: {channel_id}")
         
     except Exception as e:
         print(f"[Auto-Watch] 감시 등록 실패 ({user.email}): {e}")
         # 로그인 프로세스를 방해하지 않기 위해 로그만 남기고 넘어감
+
+def resolve_full_path(user: UserSchema, file_id: str) -> str:
+    """
+    파일의 상위 폴더들을 역추적하여 읽을 수 있는 전체 경로(Full Path)를 생성합니다.
+    예: /2024년 사업계획/3분기/실적보고서.pdf
+    """
+    drive_service = get_user_drive_service(user)
+    path_segments = []
+    
+    current_id = to_external_id('fil_', file_id)
+    
+    try:
+        # 최대 10단계까지 역추적 (무한 루프 방지)
+        for _ in range(10):
+            file_meta = drive_service.files().get(
+                fileId=current_id,
+                fields="id, name, parents",
+                supportsAllDrives=True
+            ).execute()
+            
+            name = file_meta.get('name')
+            path_segments.insert(0, name) # 앞에 추가
+            
+            parents = file_meta.get('parents')
+            if not parents:
+                break # Root or Orphan
+                
+            current_id = parents[0] # 첫 번째 부모만 따라감 (단순화)
+            
+        return "/" + "/".join(path_segments)
+        
+    except Exception as e:
+        print(f"[Resolve-Path] Failed to resolve path for {file_id}: {e}")
+        return "/Unknown Path" 
+def list_files_in_folder_recursive(user: UserSchema, folder_id: str) -> list:
+    """
+    지정된 폴더 및 하위 폴더의 모든 파일을 재귀적으로 탐색하여 리스트로 반환합니다.
+    (폴더 구조는 무시하고 파일 리스트만 평탄화하여 반환)
+    """
+    drive_service = get_user_drive_service(user)
+    all_files = []
+
+    def _traverse(current_folder_id, current_path):
+        page_token = None
+        while True:
+            # 1. 현재 폴더 내의 파일 및 폴더 조회
+            # trashed = false: 휴지통 제외
+            query = f"'{current_folder_id}' in parents and trashed = false"
+            fields = "nextPageToken, files(id, name, mimeType, size, parents)"
+            
+            results = drive_service.files().list(
+                q=query,
+                pageSize=100,
+                fields=fields,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            
+            items = results.get('files', [])
+            
+            for item in items:
+                # 2. 폴더인 경우 재귀 호출
+                if item['mimeType'] == 'application/vnd.google-apps.folder':
+                    print(f"[Recursive-Sync] Entering subfolder: {item['name']} ({item['id']})")
+                    _traverse(item['id'])
+                else:
+                    # 3. 파일인 경우 리스트에 추가
+                    all_files.append(item)
+            
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+    
+    print(f"[Recursive-Sync] Starting traversal for root folder: {folder_id}")
+    
+    # Google API uses raw ID
+    raw_folder_id = to_external_id('fil_', folder_id)
+
+    # Root 폴더 이름 가져오기 (가상 경로의 시작점)
+    try:
+        root_meta = drive_service.files().get(
+            fileId=raw_folder_id, 
+            fields="name",
+            supportsAllDrives=True
+        ).execute()
+        root_name = root_meta.get('name', 'Root')
+    except Exception:
+        root_name = "Root"
+
+    def _traverse(current_folder_id, current_path):
+        page_token = None
+        while True:
+            # 1. 현재 폴더 내의 파일 및 폴더 조회
+            # trashed = false: 휴지통 제외
+            query = f"'{current_folder_id}' in parents and trashed = false"
+            fields = "nextPageToken, files(id, name, mimeType, size, parents, modifiedTime)"
+            
+            results = drive_service.files().list(
+                q=query,
+                pageSize=100,
+                fields=fields,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            
+            items = results.get('files', [])
+            
+            for item in items:
+                # Capture Raw ID for recursion
+                raw_item_id = item['id']
+                
+                # Add Internal ID (fil_)
+                internal_id = to_internal_id('fil_', raw_item_id)
+                item['id'] = internal_id
+                
+                # 2. 폴더인 경우 재귀 호출 & 경로 누적
+                if item['mimeType'] == 'application/vnd.google-apps.folder':
+                    sub_folder_name = item['name']
+                    # print(f"[Recursive-Sync] Entering subfolder: {sub_folder_name}")
+                    # Fix: Pass raw_item_id to Google API, not internal_id
+                    _traverse(raw_item_id, f"{current_path}/{sub_folder_name}")
+                else:
+                    # 3. 파일인 경우 리스트에 추가 & 가상 경로(virtual_path) 주입
+                    item['virtual_path'] = f"{current_path}/{item['name']}"
+                    all_files.append(item)
+            
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+    
+    try:
+        # 루트 경로는 "/RootFolderName" 형태로 시작
+        _traverse(raw_folder_id, f"/{root_name}")
+    except Exception as e:
+        print(f"[Recursive-Sync] Error during traversal: {e}")
+        raise e
+
+        
+    print(f"[Recursive-Sync] Traversal complete. Found {len(all_files)} files.")
+    return all_files
+
