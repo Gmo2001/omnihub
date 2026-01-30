@@ -1,5 +1,5 @@
 # GCP 서비스 계정 키 (가장 중요)
-*.json
+secrets/
 
 # 환경 변수 파일
 .env
