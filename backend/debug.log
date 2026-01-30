@@ -1,0 +1,179 @@
+
+========== NEW REQUEST ==========
+Query: 계약서 보여줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+After filters: 0 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 문서 보여줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+After filters: 0 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 문서 보여줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+After filters: 0 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 내용 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+
+========== NEW REQUEST ==========
+Query: 계약서 문서 보여줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 문서 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 3 chunks as fallback
+After filters: 3 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 문서 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 3 chunks as fallback
+After filters: 3 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 내용 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 임대차 계약서 3줄 요약해줘.
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 임대차 계약서의 내용을 3줄 요약 해달라니까?
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 아니 너 할줄 아는게 뭐야
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 문서 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 3 chunks as fallback
+After filters: 3 chunks
+
+========== NEW REQUEST ==========
+Query: 임대차 계약서의 핵심 내용을 3줄로 요약해줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 3 chunks as fallback
+After filters: 3 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 내용 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 임대차계약서 3줄 요약해줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 파월 의장 11.2일에 무슨 일 했어?
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 임금 상승 둔화 관련 문서 찾아줘.
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling random chunks from Firestore
+Sampled 5 chunks as fallback
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 문서 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling diverse chunks from Firestore
+Sampled 3 chunks from 3 different documents
+After filters: 3 chunks
+
+========== NEW REQUEST ==========
+Query: 계약서 관련 문서 알려줘
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling diverse chunks from Firestore
+Sampled 3 chunks from 3 different documents
+After filters: 3 chunks
+
+========== NEW REQUEST ==========
+Query: 파울 관련 문서 찾아줘.
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling diverse chunks from Firestore
+Sampled 5 chunks from 5 different documents
+After filters: 5 chunks
+
+========== NEW REQUEST ==========
+Query: 파월 의장 관련 문서 찾아줘.
+Embedding dim: 768
+Vector Search returned 0 chunk IDs: []
+Firestore returned 0 chunks
+FALLBACK: Sampling diverse chunks from Firestore
+Sampled 5 chunks from 5 different documents
+After filters: 5 chunks

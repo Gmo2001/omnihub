@@ -1,0 +1,27 @@
+{
+  "total_endpoints": 1,
+  "endpoints": [
+    {
+      "display_name": "omnihub_endpoint_v1",
+      "resource_name": "projects/60670441590/locations/us-central1/indexEndpoints/4010184988312993792",
+      "deployed_indexes": [
+        {
+          "id": "dep_1769150238",
+          "index": "projects/60670441590/locations/us-central1/indexes/2635074173965172736"
+        },
+        {
+          "id": "dep_1769150244",
+          "index": "projects/60670441590/locations/us-central1/indexes/7394253080188944384"
+        },
+        {
+          "id": "dep_1769150393",
+          "index": "projects/60670441590/locations/us-central1/indexes/7394253080188944384"
+        },
+        {
+          "id": "dep_1769150452",
+          "index": "projects/60670441590/locations/us-central1/indexes/7394253080188944384"
+        }
+      ]
+    }
+  ]
+}

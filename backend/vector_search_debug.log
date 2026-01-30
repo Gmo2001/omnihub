@@ -1,0 +1,21 @@
+
+=== Vector Search Call ===
+Query embedding dim: 768
+Deployed index ID: dep_1769150244
+Requested top_k: 3
+Response type: <class 'list'>
+Response length: 0
+
+=== Vector Search Call ===
+Query embedding dim: 768
+Deployed index ID: dep_1769150452
+Requested top_k: 5
+Response type: <class 'list'>
+Response length: 0
+
+=== Vector Search Call ===
+Query embedding dim: 768
+Deployed index ID: dep_1769150452
+Requested top_k: 5
+Response type: <class 'list'>
+Response length: 0
