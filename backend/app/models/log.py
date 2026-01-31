@@ -12,6 +12,12 @@ class ActionType(int, Enum):
     MOVE = 2            # 이동
     APPROVE = 3         # 승인
     DENIED = 4          # 접근 거부
+    LOGIN = 5           # 로그인
+    LOGOUT = 6          # 로그아웃
+    DELETE = 7          # 영구 삭제
+    TRASH = 8           # 휴지통 이동
+    CREATE = 9          # 파일 생성 (최초 수집)
+    UPDATE = 10         # 파일 수정 (업데이트)
 
 # CamelCase Model
 class CamelModel(BaseModel):

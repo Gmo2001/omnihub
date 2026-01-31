@@ -348,6 +348,15 @@ export const BackendAPI = {
             const err = await res.json();
             throw new Error(err.detail || "Sync Failed");
         }
+    },
+
+    // 4. Check Sync Status (Polling)
+    getSyncStatus: async (folderId: string, token: string | null) => {
+        if (!token) return { status: 'idle' };
+        const res = await fetch(`https://omnihub-backend-707724932002.asia-northeast3.run.app/drive/status/${folderId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return { status: 'error' };
         return await res.json();
     }
 };

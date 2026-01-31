@@ -7,7 +7,7 @@ from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
 from app.services.docai_service import process_documents_batch
-from app.services.ingestion_service import ingest_file_content, process_and_catalog_file
+from app.services.ingestion_service import process_and_catalog_file
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
 from app.core.gcp_clients import db
@@ -75,7 +75,10 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
         
         processed_count = 0
         skipped_count = 0 # Track skipped files
+        processed_count = 0
+        skipped_count = 0 # Track skipped files
         failed_list = []
+        recent_files = [] # Track recent file names for UI
         
         # [System Status] Start Tracking
         db.collection("system_status").document(folder_id).set({
@@ -115,6 +118,12 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
             processed_count += 1
             
             if res["status"] == "success":
+                f_item = res["file_item"]
+                # Update recent files (Keep last 5)
+                recent_files.append(f_item['name'])
+                if len(recent_files) > 5:
+                    recent_files.pop(0)
+
                 # Check if skipped
                 if res["result"].get("status") == "skipped":
                     skipped_count += 1
@@ -131,7 +140,8 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
             if processed_count % 5 == 0:
                 db.collection("system_status").document(folder_id).update({
                     "processed": processed_count,
-                    "skipped": skipped_count
+                    "skipped": skipped_count,
+                    "recent_files": recent_files
                 })
 
         # Summary Log
@@ -145,7 +155,8 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
             "duration": duration,
             "processed": processed_count,
             "skipped": skipped_count,
-            "failed": len(failed_list)
+            "failed": len(failed_list),
+            "recent_files": recent_files
         })
         
         # [Enrichment] Richer Context
@@ -218,6 +229,52 @@ def sync_drive_folder(
         "message": "Folder sync started in background.",
         "folder_id": request.folder_id
     }
+
+@router.delete("/sync-folder")
+def unsync_drive_folder(
+    request: SyncFolderRequest,
+    current_user: UserSchema = Depends(get_current_user)
+):
+    """
+    [Privacy Guard] 지정된 폴더를 Whitelist(동기화 대상)에서 제외합니다.
+    """
+    try:
+        user_ref = db.collection('users').document(current_user.email)
+        
+        # ArrayRemove: 배열에서 해당 요소만 안전하게 제거
+        user_ref.update({
+            "monitored_folder_ids": firestore.ArrayRemove([request.folder_id])
+        })
+        
+        # Log Action
+        log_user_action(
+            user=current_user,
+            action=ActionType.DELETE, # 설정 삭제로 간주
+            file_id=request.folder_id,
+            success=True,
+            details={"activity": "remove_whitelist_folder"}
+        )
+        
+        print(f"[Privacy] Un-whitelisted folder {request.folder_id} for {current_user.email}")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to unsync folder: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": "Folder removed from whitelist.",
+        "folder_id": request.folder_id
+    }
+
+@router.get("/status/{folder_id}")
+def get_sync_status(folder_id: str, current_user: UserSchema = Depends(get_current_user)):
+    """
+    [Polling] Check Sync Status
+    """
+    doc = db.collection("system_status").document(folder_id).get()
+    if not doc.exists:
+        return {"status": "idle"}
+    return doc.to_dict()
 
 @router.post("/process/batch")
 async def process_drive_files_batch(

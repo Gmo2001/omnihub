@@ -36,8 +36,8 @@ app.include_router(files.router)            # 지금 테스트용
 def google_verification():
     return "google-site-verification: google55f35d8e589dce80.html"
 
-#health check
-@app.get("/")
+#health check (API only)
+@app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "OmniHub Backend"}
 
@@ -49,4 +49,5 @@ import os
 if not os.path.exists("static"):
     os.makedirs("static")
 
-app.mount("/console", StaticFiles(directory="static", html=True), name="static")
+# Mount React App at Root
+app.mount("/", StaticFiles(directory="static", html=True), name="static")

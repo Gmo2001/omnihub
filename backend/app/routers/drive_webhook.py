@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Header, BackgroundTasks
 from app.services.sync_service import sync_file_metadata
-from app.services.ingestion_service import ingest_file_content
+from app.services.ingestion_service import process_and_catalog_file
 from app.core.gcp_clients import get_drive_service, db
 from app.services.drive_service import get_user_drive_service, stream_file_to_gcs
 from app.models.user import UserSchema
@@ -130,11 +130,31 @@ async def handle_drive_webhook(
                 if change.get('removed') or (file_item and file_item.get('trashed')):
                     print(f"[Webhook] File removed/trashed: {file_id}")
                     auth_fil_id = to_internal_id('fil_', file_id)
+                    
+                    # 1. Update File Status (State Sync)
                     db.collection('files').document(auth_fil_id).update({
                         "trashed": True, 
                         "status": "deleted",
                         "updatedAt": datetime.datetime.now()
                     })
+                    
+                    # 2. Log Action (Audit Trail) - [Added]
+                    action_type = ActionType.DELETE if change.get('removed') else ActionType.TRASH
+                    
+                    # 로그를 남기기 위해선 User 정보가 필요 (user 객체는 상단에서 이미 로드됨)
+                    from app.services.log_service import log_user_action
+                    from app.models.log import ActionType
+                    
+                    log_user_action(
+                        user=user,
+                        action=action_type,
+                        file_id=file_id,
+                        success=True,
+                        details={
+                            "method": "webhook_event",
+                            "explicit_removal": change.get('removed', False)
+                        }
+                    )
                     continue
                 
                 # B. 파일 추가/수정
@@ -267,37 +287,6 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                             severity="ERROR"
                         )
 
-                    # Ingest 역시 올바른 서비스 객체가 필요함
-                    content = ingest_file_content(file_id, file_obj.mime_type, drive_service=drive_service)
-                    
-                    if content:
-                        print(f"콘텐츠 추출 완료 ({file_obj.name}): {len(content)} 글자")
-                        
-                        # 단계 3: AI Agent에게 분석 요청
-                        # [Fix] Circular Import 방지를 위해 함수 내부에서 Import
-                        from app.services.ai_a.analysis_service import analyze_file_content
-                        
-                        # AI 상태 'processing'으로 업데이트
-                        db.collection('files').document(file_id).update({"aiStatus": "processing"})
-
-                        # [Phase 3] AI Handoff Object 생성 (DTO)
-                        ai_request = AIAnalysisRequest(
-                            file_id=file_id,
-                            gcs_uri=file_obj.gcs_uri,
-                            mime_type=file_obj.mime_type,
-                            extracted_text=content if content else None,
-                            file_name=file_obj.name,
-                            full_path=file_obj.full_path,
-                            owners=file_obj.owners,
-                            last_modified_by=file_obj.last_modified_by
-                        )
-
-                        # Call Analysis Service
-                        ai_result = await analyze_file_content(ai_request)
-                        
-                        # 단계 4: 분석 결과 DB 업데이트 (이제 analyze_file_content 내부에서 ai_insights에 저장함)
-                        if ai_result:
-                            # db.collection('files').document(file_id).set(ai_result, merge=True)
                             print(f"AI 분석 의뢰 완료 (ID: {file_id})")
 
             except Exception as e:
