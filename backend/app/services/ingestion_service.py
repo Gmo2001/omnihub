@@ -6,6 +6,7 @@ from datetime import datetime
 from google.cloud import firestore
 from app.services.drive_service import stream_file_to_gcs, resolve_full_path # Added import
 from app.services.bq_service import stream_files_to_bigquery # Added BQ Service
+from app.services.metadata_extractor import extract_internal_metadata # Added Metadata Extractor
 from app.core.gcp_clients import get_drive_service, db # Restore db
 from googleapiclient.http import MediaIoBaseDownload # Restore class
 from app.utils.id_utils import to_internal_id # Restore util
@@ -164,6 +165,16 @@ def process_and_catalog_file(
             "isFolder": False,
             "trashed": meta.get("trashed", False)
         }
+
+        # [Added] Extract Internal Metadata
+        internal_meta = {}
+        if "file_content" in result:
+            internal_meta = extract_internal_metadata(result["file_content"], result["mime_type"])
+            # Remove heavy content from result to free memory
+            del result["file_content"]
+
+        if internal_meta:
+            update_data["internalMeta"] = internal_meta
 
         doc_ref.set(update_data, merge=True)
         print(f"[Ingest] Stamped metadata for {file_id} (Path: {full_path})")

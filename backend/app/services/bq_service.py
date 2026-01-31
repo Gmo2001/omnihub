@@ -14,8 +14,11 @@ _checked_tables = set() # 테이블 존재 여부 캐싱
 def get_bq_client():
     global _bq_client
     if not _bq_client:
-        # Cloud Run 기본 자격증명 사용
-        _bq_client = bigquery.Client(project=settings.PROJECT_ID)
+        # [Modify] Use Service Account for BigQuery
+        _bq_client = bigquery.Client.from_service_account_json(
+            settings.GOOGLE_APPLICATION_CREDENTIALS, 
+            project=settings.PROJECT_ID
+        )
     return _bq_client
 
 # Constants

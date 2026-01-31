@@ -6,7 +6,7 @@ from google.cloud import firestore # Added for ArrayUnion
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
-from app.services.docai_service import process_documents_batch
+from app.services.docai_service import DocAIExtractor # [Modified] Use new Extractor Service
 from app.services.ingestion_service import ingest_file_content, process_and_catalog_file
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
@@ -222,102 +222,33 @@ def sync_drive_folder(
 @router.post("/process/batch")
 async def process_drive_files_batch(
     request: BatchProcessRequest,
+    background_tasks: BackgroundTasks, # 백그라운드 필수
     current_user: UserSchema = Depends(get_current_user)
 ):
     """
-    [Phase 3 - Simplified] 다수의 GCS 파일에 대해 Document AI 배치를 실행하고,
-    결과 JSON(docai_output.json)을 Firestore 'docai_results' 컬렉션에 저장합니다.
-    (AI-A 팀으로의 Handoff Point)
+    [Phase 3] DocAI 비동기 처리 요청
     """
-    # 1. Document AI Batch Processing
-    # 이제 gcs_uris 리스트가 아니라, mime_type을 포함한 딕셔너리 리스트를 전달합니다.
-    batch_items = [
-        {"gcs_uri": item.gcs_uri, "mime_type": item.mime_type} 
-        for item in request.items
-    ]
+    extractor = DocAIExtractor()
+    queued_count = 0
     
-    # DocAI 호출 (docai_output.json 매핑된 결과 반환)
-    docai_results = process_documents_batch(batch_items)
-
-    processed_count = 0
-    artifacts_summary = []
-
-    # Firestore 준비
-    from app.core.gcp_clients import db
-    collection_ref = db.collection('docai_results')
-
-    for i, doc_output in enumerate(docai_results):
-        original_item = request.items[i]
+    for item in request.items:
+        # BackgroundTasks에 작업 등록 (서버 블로킹 방지)
+        background_tasks.add_task(
+            extractor.process_single_document,
+            file_id=item.file_id,
+            gcs_uri=item.gcs_uri,
+            mime_type=item.mime_type
+        )
+        queued_count += 1
         
-        # 에러 체크
-        if "errors" in doc_output:
-            artifacts_summary.append({
-                "file_id": original_item.file_id, 
-                "status": "failed", 
-                "error": doc_output["errors"]
-            })
-            continue
-
-        try:
-            # 2. Firestore 저장 (Raw Output Transfer)
-            # AI-A 팀이 가져갈 수 있도록 Raw JSON 저장
-            # 문서 ID는 doc_id 사용
-            doc_id = doc_output.get("doc_id", f"unknown_{original_item.file_id}")
-            
-            # 메타데이터 업데이트 (저장 시점, 요청자 등)
-            # [Phase 3] Metadata Handoff Expansion
-            file_meta_snapshot = db.collection('files').document(original_item.file_id).get()
-            file_meta = file_meta_snapshot.to_dict() if file_meta_snapshot.exists else {}
-
-            doc_output["_handoff_meta"] = {
-                "saved_at": "timestamp", # 실제로는 datetime.now().isoformat()
-                "requested_by": current_user.email,
-                "user_department": current_user.department,
-                "user_department_id": current_user.department_id,
-                "file_created_at": str(file_meta.get("created_at", "")),
-                "file_owner": file_meta.get("owners", [])
-            }
-
-            # source 영역에도 추가 정보 주입
-            if "source" in doc_output:
-                doc_output["source"]["drive_file_id"] = original_item.file_id
-                doc_output["source"]["file_name"] = file_meta.get("name")
-            
-            # Upsert
-            collection_ref.document(doc_id).set(doc_output)
-            
-            processed_count += 1
-            artifacts_summary.append({
-                "file_id": original_item.file_id,
-                "doc_id": doc_id,
-                "status": "success",
-                "message": "Saved to Firestore 'docai_results'"
-            })
-            
-        except Exception as e:
-            print(f"Error saving to DB: {e}")
-            artifacts_summary.append({
-                "file_id": original_item.file_id,
-                "status": "db_error",
-                "error": str(e)
-            })
-
-    # [LogService] Process Batch Log
-    # [LogService] Process Batch Log
-    log_user_action(
-        user=current_user,
-        action=ActionType.VIEW,
-        file_id="batch_process",
-        success=True,
-        details={
-            "total": len(request.items),
-            "processed": processed_count,
-            "failed": len(request.items) - processed_count
-        }
-    )
+        # 상태 업데이트
+        db.collection('files').document(item.file_id).update({
+            "aiStatus": "processing",
+            "aiMethod": "docai_batch_async"
+        })
 
     return {
-        "status": "batch_completed",
-        "processed_count": processed_count,
-        "details": artifacts_summary
+        "status": "batch_queued",
+        "queued_count": queued_count,
+        "message": f"{queued_count}건의 문서가 백그라운드 처리 대기열에 등록되었습니다."
     }

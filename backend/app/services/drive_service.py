@@ -8,7 +8,7 @@ from app.core.config import settings
 from fastapi import HTTPException
 from google.auth.transport.requests import Request
 import uuid
-from app.core.gcp_clients import db
+from app.core.gcp_clients import db, get_drive_service as get_sa_drive_service
 from app.models.watch import WatchChannelSchema
 from app.utils.id_utils import to_internal_id, to_external_id
 from datetime import datetime
@@ -49,7 +49,13 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
     Streams a file from the User's Google Drive to a GCS Bucket.
     Returns the GCS URI.
     """
-    drive_service = get_user_drive_service(user)
+    drive_service = None
+    # [Modify] Check for dummy token to use Service Account
+    if user.google_access_token == "dummy":
+        print(f"🤖 [Drive] Tesing Mode: Compelling Service Account Creds")
+        drive_service = get_sa_drive_service()
+    else:
+        drive_service = get_user_drive_service(user)
     
     # 1. Get File Metadata
     try:
@@ -87,7 +93,8 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
         file_ext = "" 
 
     # 2. Prepare GCS Upload
-    storage_client = storage.Client()
+    # [Modify] Force use of Service Account Creds from settings
+    storage_client = storage.Client.from_service_account_json(settings.GOOGLE_APPLICATION_CREDENTIALS)
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
     
     # [Feature Upgrade] Category-based GCS Path
@@ -127,6 +134,10 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
     
     # Upload to GCS
     blob.upload_from_file(fh, content_type=mime_type)
+
+    # [Added] Read content for metadata extraction
+    fh.seek(0)
+    file_content = fh.read()
     
     gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_name}"
     return {
@@ -134,7 +145,8 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
         "file_name": file_name,
         "mime_type": mime_type,
         "size": file_meta.get('size'),
-        "metadata": file_meta # [Fix] Pass full metadata to caller
+        "metadata": file_meta, # [Fix] Pass full metadata to caller
+        "file_content": file_content # [Added] Return binary content
     }
 
 async def register_user_watch(user: UserSchema, base_url: str):
@@ -220,7 +232,11 @@ def resolve_full_path(user: UserSchema, file_id: str) -> str:
     파일의 상위 폴더들을 역추적하여 읽을 수 있는 전체 경로(Full Path)를 생성합니다.
     예: /2024년 사업계획/3분기/실적보고서.pdf
     """
-    drive_service = get_user_drive_service(user)
+    # [Modify] Check for dummy token to use Service Account
+    if user.google_access_token == "dummy":
+        drive_service = get_sa_drive_service()
+    else:
+        drive_service = get_user_drive_service(user)
     path_segments = []
     
     current_id = to_external_id('fil_', file_id)

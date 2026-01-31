@@ -199,3 +199,8 @@ class DocAIExtractor:
             })
             
         return {"pages": pages}
+
+# main 함수 추가
+if __name__ == "__main__":
+    extractor = DocAIExtractor()
+    extractor.process_single_document("test_file_id", "gs://test_bucket/test_file.pdf", "application/pdf")

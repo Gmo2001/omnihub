@@ -10,6 +10,7 @@ from app.models.log import ActionType
 from app.services.drive_service import register_user_watch
 from jose import jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel
 
 router = APIRouter(tags=["auth"])
 

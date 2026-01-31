@@ -37,3 +37,5 @@ class AIInsightSchema(CamelModel):
     # RAG/Vector Search용
     vector_id: Optional[str] = Field(None, description="Vector DB 저장 ID")
     """
+
+    # => 결과에 대한 요소? 변수 등을 넣기. 연결고리용 - > 이걸로 api를 만들겠다.
