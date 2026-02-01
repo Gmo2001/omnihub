@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.routers import files, drive_webhook, auth, admin, ingest
+from app.services.ai_a.rag.app.api.routers import rag_api
 from fastapi.responses import PlainTextResponse # 텍스트 응답용
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -27,6 +28,7 @@ app.include_router(auth.router)           # 인증 라우터 등록
 app.include_router(drive_webhook.router)
 app.include_router(admin.router)            # Admin APIS
 app.include_router(ingest.router)           # Drive Ingestion
+app.include_router(rag_api.router)          # RAG API (Retrieval & Generation)
 # app.include_router(graph.router)          # 나중에 구현
 app.include_router(files.router)            # 지금 테스트용
 

@@ -12,6 +12,9 @@ from googleapiclient.http import MediaIoBaseDownload # Restore class
 from app.utils.id_utils import to_internal_id # Restore util
 from app.services.log_service import log_user_action # Restore log
 from app.models.log import ActionType # Restore enum
+# [RAG] Orchestrator Import
+from app.services.ai_a.pipeline_orchestrator import PipelineOrchestrator
+import asyncio
 import io 
 
 def ingest_file_content(file_id: str, mime_type: str, drive_service=None) -> str:
@@ -207,4 +210,27 @@ def process_and_catalog_file(
     )
 
     return result
+
+    # [RAG Trigger]
+    # Fire and Forget mechanism using asyncio.create_task (if loop exists) or simple warning if not async context.
+    # Ideally, ingestion_service should be async to await this properly or pass to background tasks.
+    # Since this function is sync, we'll setup a lightweight runner or just print intent if orchestration is async.
+    
+    # NOTE: The user requested "Ingest -> VectorDB".
+    # Ingest is called by API router (ingest.py), which is async.
+    # But this function `process_and_catalog_file` is synchronous. 
+    # To run the async pipeline from here without refactoring everything to async:
+    
+    # >>> Better Approach: Return result, let the Router call the Orchestrator.<<<
+    # But per user request to "simulate webhook", simulation calls this function directly.
+    # So we will let "simulate_webhook.py" handle the orchestration call for testing,
+    # OR we modify this function to try running it.
+    
+    # Let's rely on the ROUTER (`app/routers/ingest.py`) to trigger the pipeline for real app usage,
+    # and update `simulate_webhook.py` to call it manually for the test.
+    # Wait, the plan was to modify `ingestion_service` or `ingest.py`. 
+    # Modifying `ingest.py` (Router) is cleaner for the architecture.
+
+    # Reverting this edit plan. I will modify `ingest.py` router instead, and `simulate_webhook.py`.
+    pass
 

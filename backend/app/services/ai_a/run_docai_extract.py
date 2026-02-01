@@ -13,6 +13,8 @@ from google.cloud import firestore
 from app.core.config import settings
 from app.core.gcp_clients import db
 
+from google.oauth2 import service_account
+
 # 로거 설정
 logger = logging.getLogger("DocAIService")
 logger.setLevel(logging.INFO)
@@ -24,7 +26,7 @@ class DocAIExtractor:
         
         # GCS 설정 (Project ID 명시)
         self.project_id = settings.PROJECT_ID
-        self.location = settings.DOCAI_LOCATION
+        self.location = settings.DOC_AI_LOCATION
         self.bucket_name = getattr(settings, "GCS_BUCKET", f"{self.project_id}-docai-output")
         
         # GCS 클라이언트 (서비스 계정 키 사용)
@@ -35,10 +37,14 @@ class DocAIExtractor:
         self.bucket = self.storage_client.bucket(self.bucket_name)
         
         # Document AI Client
+        # [Fix] Explicitly load credentials to ensure correct scopes
+        creds = service_account.Credentials.from_service_account_file(
+            settings.GOOGLE_APPLICATION_CREDENTIALS
+        )
         opts = ClientOptions(api_endpoint=f"{self.location}-documentai.googleapis.com")
         self.docai_client = documentai.DocumentProcessorServiceClient(
             client_options=opts,
-            credentials=self.storage_client._credentials # 인증 정보 재사용
+            credentials=creds
         )
 
     def get_processor_name(self, mime_type: str) -> Optional[str]:
@@ -138,6 +144,10 @@ class DocAIExtractor:
             })
             
             logger.info(f"✅ [DocAI] 최종 완료: {file_id} (페이지: {page_count})")
+
+            # [Pipeline] Orchestrator manages the next steps.
+            # No manual trigger here.
+            pass
 
         except Exception as e:
             logger.error(f"❌ [DocAI] 실패 ({file_id}): {e}")

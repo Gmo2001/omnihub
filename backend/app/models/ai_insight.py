@@ -10,6 +10,7 @@ class CamelModel(BaseModel):
         populate_by_name = True
 
 class AIInsightSchema(CamelModel):
+      # => 결과에 대한 요소? 변수 등을 넣기. 연결고리용 - > 이걸로 api를 만들겠다.
     """
     [Phase 3] AI 분석 결과 전용 모델 (Fact와 Insight 분리)
     - 원본 파일 정보(files)와 1:N 또는 1:1 관계
@@ -38,4 +39,4 @@ class AIInsightSchema(CamelModel):
     vector_id: Optional[str] = Field(None, description="Vector DB 저장 ID")
     """
 
-    # => 결과에 대한 요소? 변수 등을 넣기. 연결고리용 - > 이걸로 api를 만들겠다.
+  

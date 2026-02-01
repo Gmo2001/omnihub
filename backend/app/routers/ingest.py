@@ -59,6 +59,34 @@ async def ingest_drive_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    # [RAG Pipeline Trigger]
+    try:
+        from app.services.ai_a.pipeline_orchestrator import PipelineOrchestrator
+        orchestrator = PipelineOrchestrator()
+        
+        # internal_id extraction (fil_ prefix)
+        internal_file_id = result.get("file_id") 
+        gcs_uri = result.get("gcs_uri")
+        mime_type = result.get("mime_type")
+
+        # Run in background to execute full pipeline
+        background_tasks.add_task(
+            orchestrator.run_pipeline, 
+            file_id=internal_file_id,
+            gcs_uri=gcs_uri,
+            mime_type=mime_type
+        )
+        print(f"🚀 [Ingest] RAG Pipeline triggered for {internal_file_id}")
+        
+    except Exception as e:
+        print(f"⚠️ [Ingest] Failed to trigger RAG Pipeline: {e}")
+
+    return {
+        "status": "success",
+        "message": "File streamed and RAG Pipeline started",
+        "data": result
+    }
+
 import asyncio
 
 async def sync_folder_task(user: UserSchema, folder_id: str):

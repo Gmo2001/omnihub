@@ -15,7 +15,7 @@ from datetime import datetime
 import time
 
 # GCS Configurations
-GCS_BUCKET_NAME = f"{settings.PROJECT_ID}-raw-files" # e.g. "omnihub-raw-files"
+GCS_BUCKET_NAME = settings.GCS_BUCKET # Use the single unified bucket from .env
 # Note: Bucket Name should be globally unique. Using PROJECT_ID prefix is a good practice.
 # If PROJECT_ID is not set in config defaults, retrieval might fail if not in env. 
 # We'll assume PROJECT_ID is reliable or handle it.
