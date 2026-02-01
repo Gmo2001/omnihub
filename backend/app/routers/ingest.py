@@ -6,7 +6,7 @@ from google.cloud import firestore # Added for ArrayUnion
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
-from app.services.docai_service import DocAIExtractor # [Modified] Use new Extractor Service
+from app.services.ai_a.run_docai_extract import DocAIExtractor # [Modified] Use new Extractor from run_docai_extract
 from app.services.ingestion_service import ingest_file_content, process_and_catalog_file
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
