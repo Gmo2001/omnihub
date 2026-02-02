@@ -6,13 +6,27 @@ from google.cloud import firestore # Added for ArrayUnion
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
-from app.services.docai_service import process_documents_batch
+# from app.services.docai_service import process_documents_batch # [Deprecated - Phase 3]
+from app.services.ai_a.analysis_service import trigger_analysis # [Phase 3] New Service
 from app.services.ingestion_service import process_and_catalog_file
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
 from app.core.gcp_clients import db
 from pydantic import BaseModel
 from typing import List, Any, Dict
+
+"""
+ingest.py는 외부 요청을 처리하는 **관문(Router)**으로서, 불필요한 기능은 없습니다. 각 API가 존재하는 명확한 이유가 있습니다.
+
+POST /ingest: (단건 수집) "파일 하나만 콕 집어서 올릴 때" 씁니다. (예: Webhook 이벤트, UI에서 파일 하나 업로드)
+POST /sync-folder: (대량 수집) "폴더 통째로 동기화할 때" 씁니다. 사용자가 UI에서 폴더를 선택하면 백그라운드에서 수백 개의 파일을 긁어옵니다.
+GET /status/{folder_id}: (상태 확인) 폴더 동기화는 오래 걸리므로, 프론트엔드가 "지금 몇 개 했어?"라고 물어볼 때 씁니다.
+POST /process/batch: (수동 트리거) 자동 트리거가 실패했거나, 개발자가 강제로 여러 파일을 다시 분석 돌릴 때 씁니다.
+sync_folder_task: API는 아니지만, 핵심 일꾼함수입니다. 폴더 내 파일 목록을 뒤져서 하나씩 ingest 로직을 태웁니다.
+"""
+
+
+
 
 router = APIRouter(
     prefix="/drive",
@@ -38,6 +52,7 @@ class BatchProcessRequest(BaseModel):
 @router.post("/ingest")
 async def ingest_drive_file(
     request: IngestRequest,
+    background_tasks: BackgroundTasks, # Added
     current_user: UserSchema = Depends(get_current_user)
 ):
     """
@@ -49,11 +64,23 @@ async def ingest_drive_file(
         
     try:
         # Refactored Logic
+        # Note: process_and_catalog_file is sync, but running it in main thread is okay for one file 
+        # or we could use run_in_executor. For simplicity and since we are in async def, 
+        # it might block event loop if slow. But let's keep it simple for now as per previous logic.
         result = process_and_catalog_file(current_user, request.file_id)
+        
+        # [Phase 3] Trigger AI Analysis
+        if result.get("status") != "skipped":
+            background_tasks.add_task(
+                trigger_analysis,
+                file_id=request.file_id,
+                gcs_uri=result.get("gcs_uri"),
+                mime_type=result.get("mime_type")
+            )
         
         return {
             "status": "success",
-            "message": "File streamed to GCS successfully",
+            "message": "File streamed and AI analysis triggered.",
             "data": result
         }
     except Exception as e:
@@ -119,14 +146,32 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
             
             if res["status"] == "success":
                 f_item = res["file_item"]
+                ingest_result = res["result"]
+                
                 # Update recent files (Keep last 5)
                 recent_files.append(f_item['name'])
                 if len(recent_files) > 5:
                     recent_files.pop(0)
 
                 # Check if skipped
-                if res["result"].get("status") == "skipped":
+                if ingest_result.get("status") == "skipped":
                     skipped_count += 1
+                else:
+                    # [Fix for User Request] Trigger AI Analysis for Synced File
+                    # Skipped files don't need re-analysis (unless we want to force re-run on metadata change?)
+                    # For now, only new/updated files trigger AI.
+                    if ingest_result.get("status") != "error":
+                         file_id = f_item['id']
+                         # trigger_analysis is async, fire-and-forget to avoid blocking ingestion too much
+                         # But we want to be careful about flooding.
+                         # Since pipeline is heavy, putting it in background is correct.
+                         asyncio.create_task(trigger_analysis(
+                             file_id=file_id,
+                             gcs_uri=ingest_result.get("gcs_uri"),
+                             mime_type=ingest_result.get("mime_type")
+                         ))
+                         print(f"[Sync-Task] Triggered AI Analysis for {file_id}")
+
             else:
                 f_item = res["file_item"]
                 print(f"[Sync-Task] Failed {f_item['name']} ({f_item['id']}): {res['error']}")
@@ -282,99 +327,63 @@ async def process_drive_files_batch(
     current_user: UserSchema = Depends(get_current_user)
 ):
     """
-    [Phase 3 - Simplified] 다수의 GCS 파일에 대해 Document AI 배치를 실행하고,
-    결과 JSON(docai_output.json)을 Firestore 'docai_results' 컬렉션에 저장합니다.
-    (AI-A 팀으로의 Handoff Point)
+    [Phase 3 - Simplified] 다수의 GCS 파일에 대해 AI 분석을 비동기 요청합니다.
+    (기존의 Synchronous Batch Processing을 대체하여 trigger_analysis를 반복 호출합니다.)
     """
-    # 1. Document AI Batch Processing
-    # 이제 gcs_uris 리스트가 아니라, mime_type을 포함한 딕셔너리 리스트를 전달합니다.
-    batch_items = [
-        {"gcs_uri": item.gcs_uri, "mime_type": item.mime_type} 
-        for item in request.items
-    ]
+    triggered_count = 0
+    failed_count = 0
     
-    # DocAI 호출 (docai_output.json 매핑된 결과 반환)
-    docai_results = process_documents_batch(batch_items)
+    # trigger_analysis는 async 함수이므로, 병렬로 실행하거나 반복문에서 await 할 수 있습니다.
+    # 여기서는 결과 일관성을 위해 순차적으로 트리거만 걸고 빠져나갑니다.
+    # (실제 처리는 Background Task 또는 Celery 등에서 수행되겠지만, 여기선 await로 바로 실행 요청)
+    # trigger_analysis 내부는 크게 무겁지 않음 (DocAI 요청만 보내고 끝남 or Sync면 기다림)
+    # run_docai_extract.DocAIExtractor.process_single_document 가 Blocking이라면
+    # 여기서 await하면 오래 걸릴 수 있음.
+    # 하지만 trigger_analysis는 이미 구현됨.
+    
+    summary = []
 
-    processed_count = 0
-    artifacts_summary = []
-
-    # Firestore 준비
-    from app.core.gcp_clients import db
-    collection_ref = db.collection('docai_results')
-
-    for i, doc_output in enumerate(docai_results):
-        original_item = request.items[i]
-        
-        # 에러 체크
-        if "errors" in doc_output:
-            artifacts_summary.append({
-                "file_id": original_item.file_id, 
-                "status": "failed", 
-                "error": doc_output["errors"]
-            })
-            continue
-
+    for item in request.items:
         try:
-            # 2. Firestore 저장 (Raw Output Transfer)
-            # AI-A 팀이 가져갈 수 있도록 Raw JSON 저장
-            # 문서 ID는 doc_id 사용
-            doc_id = doc_output.get("doc_id", f"unknown_{original_item.file_id}")
+            # Trigger Async Analysis
+            # 주의: trigger_analysis는 DB 상태를 'processing'으로 바꾸고 작업을 시작함.
+            # 클라이언트에게는 "Started"라고 응답.
             
-            # 메타데이터 업데이트 (저장 시점, 요청자 등)
-            # [Phase 3] Metadata Handoff Expansion
-            file_meta_snapshot = db.collection('files').document(original_item.file_id).get()
-            file_meta = file_meta_snapshot.to_dict() if file_meta_snapshot.exists else {}
-
-            doc_output["_handoff_meta"] = {
-                "saved_at": "timestamp", # 실제로는 datetime.now().isoformat()
-                "requested_by": current_user.email,
-                "user_department": current_user.department,
-                "user_department_id": current_user.department_id,
-                "file_created_at": str(file_meta.get("created_at", "")),
-                "file_owner": file_meta.get("owners", [])
-            }
-
-            # source 영역에도 추가 정보 주입
-            if "source" in doc_output:
-                doc_output["source"]["drive_file_id"] = original_item.file_id
-                doc_output["source"]["file_name"] = file_meta.get("name")
+            # BackgroundTask 없이 직접 await하면 처리가 끝날 때까지 기다리게 됨 (DocAI가 느리면 타임아웃 가능).
+            # 따라서 asyncio.create_task로 fire-and-forget 하거나, 
+            # 이 API가 '배치 처리 완료'를 보장해야 한다면 기다려야 함.
+            # 기존 로직은 '결과 반환'이었으므로 기다리는 게 맞을 수 있으나,
+            # Phase 3 컨셉은 "Async Pipeline" 이므로 트리거만 하고 빠지는 게 맞음.
             
-            # Upsert
-            collection_ref.document(doc_id).set(doc_output)
+            asyncio.create_task(trigger_analysis(
+                file_id=item.file_id, 
+                gcs_uri=item.gcs_uri, 
+                mime_type=item.mime_type
+            ))
             
-            processed_count += 1
-            artifacts_summary.append({
-                "file_id": original_item.file_id,
-                "doc_id": doc_id,
-                "status": "success",
-                "message": "Saved to Firestore 'docai_results'"
-            })
+            triggered_count += 1
+            summary.append({"file_id": item.file_id, "status": "triggered"})
             
         except Exception as e:
-            print(f"Error saving to DB: {e}")
-            artifacts_summary.append({
-                "file_id": original_item.file_id,
-                "status": "db_error",
-                "error": str(e)
-            })
+            failed_count += 1
+            summary.append({"file_id": item.file_id, "status": "failed", "error": str(e)})
 
-    # [LogService] Process Batch Log
     # [LogService] Process Batch Log
     log_user_action(
         user=current_user,
         action=ActionType.VIEW,
-        file_id="batch_process",
+        file_id="batch_process_trigger",
         success=True,
         details={
             "total": len(request.items),
-            "processed": processed_count,
-            "failed": len(request.items) - processed_count
+            "triggered": triggered_count,
+            "failed": failed_count
         }
     )
 
     return {
-        "status": "batch_completed",
-        "processed_count": processed_count,
-        "details": artifacts_summary
+        "status": "batch_triggered",
+        "processed_count": triggered_count,
+        "details": summary,
+        "message": "AI analysis has been triggered in the background for selected files."
     }

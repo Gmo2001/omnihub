@@ -106,7 +106,11 @@ def process_and_catalog_file(
             "aiStatus": "pending",
             
             "isFolder": False,
-            "trashed": meta.get("trashed", False)
+            "isFolder": False,
+            "trashed": meta.get("trashed", False),
+            
+            # [Phase 3] Extracted Content Metadata
+            "metadata": result.get("internal_metadata", {})
         }
 
         doc_ref.set(update_data, merge=True)

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Request, Header, BackgroundTasks
 from app.services.sync_service import sync_file_metadata
-from app.services.ingestion_service import process_and_catalog_file
 from app.core.gcp_clients import get_drive_service, db
 from app.services.drive_service import get_user_drive_service, stream_file_to_gcs
 from app.models.user import UserSchema
@@ -9,9 +8,34 @@ from app.schemas.ai_request import AIAnalysisRequest
 import datetime
 from typing import Optional
 from app.core.logger import log_system_event
-from app.utils.id_utils import to_internal_id # Added import
+from app.utils.id_utils import to_internal_id 
+from app.services.ai_a.analysis_service import trigger_analysis # [Phase 3] Added # Added import
+import asyncio
+from app.services.ingestion_service import process_and_catalog_file
+
+async def chain_ingestion_and_ai(user, file_id, drive_meta=None):
+    """
+    [Phase 3] Wrapper to chain Ingestion -> AI Analysis
+    """
+    try:
+        # 1. Ingestion (Sync function run in thread)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, lambda: process_and_catalog_file(user, file_id, drive_meta=drive_meta))
+        
+        # 2. Trigger AI if new
+        if result.get("status") != "skipped":
+            # GCS URI와 MimeType이 있어야 함
+            if result.get("gcs_uri"):
+                 await trigger_analysis(
+                     file_id=file_id, 
+                     gcs_uri=result.get("gcs_uri"), 
+                     mime_type=result.get("mime_type")
+                 )
+    except Exception as e:
+        print(f"[Pipeline] Error chain for {file_id}: {e}")
 
 router = APIRouter()
+
 
 # Firestore에서 마지막 동기화 토큰 관리 (서버 재시작시에도 유지되도록)
 # [수정됨] 토큰 저장은 이제 사용자별로 동적으로 관리됩니다.
@@ -160,10 +184,11 @@ async def handle_drive_webhook(
                 # B. 파일 추가/수정
                 if file_item:
                     print(f"[Webhook] Processing change: {file_item.get('name')} ({file_id})")
-                    from app.services.ingestion_service import process_and_catalog_file
+                    # from app.services.ingestion_service import process_and_catalog_file # Moved to top
                     
+                    # [Phase 3] Use Chain Wrapper (Ingest -> AI)
                     background_tasks.add_task(
-                        process_and_catalog_file,
+                        chain_ingestion_and_ai,
                         user=user,
                         file_id=file_id,
                         drive_meta=file_item
@@ -186,6 +211,8 @@ async def process_drive_changes(channel_id: Optional[str] = None):
     print(f"[Debug] process_drive_changes 시작. 받은 Channel ID: {channel_id}")
     drive_service = None
     user_email = "global"
+    
+    user_obj = None # Initialize
     
     # 1. 사용자 식별 (Auto-Watch 지원)
     if channel_id:
@@ -252,42 +279,17 @@ async def process_drive_changes(channel_id: Optional[str] = None):
             
             # 파이프라인 실행
             try:
-                # 단계 1: 메타데이터 동기화 (DB 저장)
-                # 경고: sync_file_metadata가 서비스 계정 권한만 사용하면 실패할 수 있었습니다.
-                # Auto-Watch 구현을 위해 drive_service 객체를 전달받도록 수정했습니다.
-                # 사용자 중심 로직이므로 서비스 계정 초대가 필요 없습니다.
-                
-                # 임시 수정: sync_file_metadata 로직을 덮어쓰거나 래핑?
-                # 더 나은 방법: `drive_service`를 `sync_file_metadata`에 전달
-                # 다음 단계에서 sync_service를 확인해야 함.
-                # 일단 흐름을 유지하되, 위험 요소를 인지.
-                
-                file_obj: FileSchema = sync_file_metadata(file_id, drive_service=drive_service) 
-                
-                # 단계 2: 콘텐츠 추출 (내용 로드) -> AI 분석 대상인 경우
-                # 폴더가 아니고, 삭제되지 않았을 때만 내용 추출
-                if file_obj and not file_obj.is_folder and not file_obj.trashed:
-                    # [Phase 3] 원본 파일 GCS 스트리밍 저장 (for Document AI / Gemini)
-                    try:
-                        gcs_result = stream_file_to_gcs(user_obj, file_id)
-                        gcs_uri = gcs_result.get('gcs_uri')
-                        
-                        # DB에 GCS URI 업데이트
-                        db.collection('files').document(file_id).update({"gcsUri": gcs_uri})
-                        print(f"GCS 스트리밍 완료 ({file_obj.name}): {gcs_uri}")
-                        
-                        # 파일 객체에도 업데이트 (AI에게 전달용)
-                        file_obj.gcs_uri = gcs_uri
-                        
-                    except Exception as gcs_error:
-                        log_system_event(
-                            event_type="GCS_UPLOAD_FAILED",
-                            component="DriveWebhook",
-                            payload={"file_id": file_id, "error": str(gcs_error)},
-                            severity="ERROR"
-                        )
-
-                            print(f"AI 분석 의뢰 완료 (ID: {file_id})")
+                # [Phase 3] Unified Pipeline Execution
+                if user_obj:
+                    # process_and_catalog_file handles GCS streaming, DB sync, and AI handoff
+                    # [Phase 3] Use Chain Wrapper (Awaitable)
+                    await chain_ingestion_and_ai(
+                        user=user_obj,
+                        file_id=file_id,
+                        drive_meta=change.get('file')
+                    )
+                else:
+                    print(f"[Skipped] {file_id}: User context missing (Global Sync not supported in Phase 3).")
 
             except Exception as e:
                 print(f"파일 처리 실패 {file_id}: {e}")

@@ -13,6 +13,7 @@ from app.models.watch import WatchChannelSchema
 from app.utils.id_utils import to_internal_id, to_external_id
 from datetime import datetime
 import time
+from app.services.metadata_extractor import extract_internal_metadata 
 
 # GCS Configurations
 GCS_BUCKET_NAME = f"{settings.PROJECT_ID}-raw-files" # e.g. "omnihub-raw-files"
@@ -128,13 +129,25 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
     # Upload to GCS
     blob.upload_from_file(fh, content_type=mime_type)
     
+    # [Phase 3] Extract Internal Metadata (In-Memory)
+    # 다운로드된 버퍼(fh)를 이용하여 내용 기반 메타데이터 추출
+    internal_meta = {}
+    try:
+        fh.seek(0) # 버퍼 포인터 초기화
+        file_bytes = fh.getvalue()
+        internal_meta = extract_internal_metadata(file_bytes, mime_type)
+        # print(f"[Metadata] Extracted: {internal_meta}")
+    except Exception as e:
+        print(f"[Metadata] Extraction warning for {file_name}: {e}")
+
     gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_name}"
     return {
         "gcs_uri": gcs_uri,
         "file_name": file_name,
         "mime_type": mime_type,
         "size": file_meta.get('size'),
-        "metadata": file_meta # [Fix] Pass full metadata to caller
+        "metadata": file_meta, #[Fix] Pass full metadata to caller
+        "internal_metadata": internal_meta # [Phase 3] Added
     }
 
 async def register_user_watch(user: UserSchema, base_url: str):
