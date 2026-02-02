@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Header, BackgroundTasks
 from app.services.sync_service import sync_file_metadata
 from app.services.ingestion_service import ingest_file_content
-from app.core.gcp_clients import get_drive_service, db
+from app.core.gcp_clients import get_drive_service, get_firestore_client
 from app.services.drive_service import get_user_drive_service, stream_file_to_gcs
 from app.models.user import UserSchema
 from app.models.file import FileSchema
@@ -18,14 +18,14 @@ router = APIRouter()
 
 def get_page_token(user_email: str = "global"):
     doc_id = f'drive_sync_token_{user_email}'
-    doc = db.collection('system').document(doc_id).get()
+    doc = get_firestore_client().collection('system').document(doc_id).get()
     if doc.exists:
         return doc.to_dict().get('token')
     return None
 
 def save_page_token(token: str, user_email: str = "global"):
     doc_id = f'drive_sync_token_{user_email}'
-    db.collection('system').document(doc_id).set({'token': token, 'updated_at': datetime.datetime.now()}, merge=True)
+    get_firestore_client().collection('system').document(doc_id).set({'token': token, 'updated_at': datetime.datetime.now()}, merge=True)
 
 @router.post("/webhook/drive")
 async def handle_drive_webhook(
@@ -50,7 +50,7 @@ async def handle_drive_webhook(
     # 2. 변경 알림
     if x_goog_resource_state in ["add", "update", "trash", "change"]:
         # 2-1. 채널 ID로 유저 식별
-        channels = db.collection('watch_channels').where('channel_id', '==', x_goog_channel_id).stream()
+        channels = get_firestore_client().collection('watch_channels').where('channel_id', '==', x_goog_channel_id).stream()
         channel_doc = next(channels, None)
         
         if not channel_doc:
@@ -61,7 +61,7 @@ async def handle_drive_webhook(
         user_email = channel_data.get('user_email')
         
         # 유저 객체 복원
-        user_ref = db.collection('users').document(user_email)
+        user_ref = get_firestore_client().collection('users').document(user_email)
         user_snap = user_ref.get()
         if not user_snap.exists:
             return {"status": "user_not_found"}
@@ -130,7 +130,7 @@ async def handle_drive_webhook(
                 if change.get('removed') or (file_item and file_item.get('trashed')):
                     print(f"[Webhook] File removed/trashed: {file_id}")
                     auth_fil_id = to_internal_id('fil_', file_id)
-                    db.collection('files').document(auth_fil_id).update({
+                    get_firestore_client().collection('files').document(auth_fil_id).update({
                         "trashed": True, 
                         "status": "deleted",
                         "updatedAt": datetime.datetime.now()
@@ -170,13 +170,13 @@ async def process_drive_changes(channel_id: Optional[str] = None):
     # 1. 사용자 식별 (Auto-Watch 지원)
     if channel_id:
         print(f"채널 ID 해결 중: {channel_id}")
-        channel_doc = db.collection('watch_channels').document(channel_id).get()
+        channel_doc = get_firestore_client().collection('watch_channels').document(channel_id).get()
         if channel_doc.exists:
             channel_data = channel_doc.to_dict()
             tgt_email = channel_data.get('user_email')
             
             # 사용자의 토큰 가져오기
-            user_ref = db.collection('users').document(tgt_email).get()
+            user_ref = get_firestore_client().collection('users').document(tgt_email).get()
             if user_ref.exists:
                 user_obj = UserSchema(**user_ref.to_dict())
                 try:
@@ -253,7 +253,7 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         gcs_uri = gcs_result.get('gcs_uri')
                         
                         # DB에 GCS URI 업데이트
-                        db.collection('files').document(file_id).update({"gcsUri": gcs_uri})
+                        get_firestore_client().collection('files').document(file_id).update({"gcsUri": gcs_uri})
                         print(f"GCS 스트리밍 완료 ({file_obj.name}): {gcs_uri}")
                         
                         # 파일 객체에도 업데이트 (AI에게 전달용)
@@ -275,10 +275,10 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         
                         # 단계 3: AI Agent에게 분석 요청
                         # [Fix] Circular Import 방지를 위해 함수 내부에서 Import
-                        from app.services.ai_a.analysis_service import analyze_file_content
+                        from app.services.legacy.analysis_service import analyze_file_content
                         
                         # AI 상태 'processing'으로 업데이트
-                        db.collection('files').document(file_id).update({"aiStatus": "processing"})
+                        get_firestore_client().collection('files').document(file_id).update({"aiStatus": "processing"})
 
                         # [Phase 3] AI Handoff Object 생성 (DTO)
                         ai_request = AIAnalysisRequest(
@@ -297,13 +297,13 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                         
                         # 단계 4: 분석 결과 DB 업데이트 (이제 analyze_file_content 내부에서 ai_insights에 저장함)
                         if ai_result:
-                            # db.collection('files').document(file_id).set(ai_result, merge=True)
+                            # get_firestore_client().collection('files').document(file_id).set(ai_result, merge=True)
                             print(f"AI 분석 의뢰 완료 (ID: {file_id})")
 
             except Exception as e:
                 print(f"파일 처리 실패 {file_id}: {e}")
                 # 에러 발생 시 상태 업데이트
-                db.collection('files').document(file_id).set({"aiStatus": "failed", "errorMsg": str(e)}, merge=True)
+                get_firestore_client().collection('files').document(file_id).set({"aiStatus": "failed", "errorMsg": str(e)}, merge=True)
 
         if 'newStartPageToken' in results:
             # 더 이상 변경사항이 없으면 newStartPageToken을 저장하고 종료

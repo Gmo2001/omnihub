@@ -41,7 +41,7 @@ async def get_tree_items(
         
         # 3. Fetch from tree_index
         # Using repo.db directly for this optimized query
-        doc_ref = repo.db.collection("tree_index").document(tree_key).get()
+        doc_ref = repo.get_firestore_client().collection("tree_index").document(tree_key).get()
         
         if not doc_ref.exists:
             # If root path not found, return empty or check if it's first run

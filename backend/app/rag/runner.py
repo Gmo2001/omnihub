@@ -9,7 +9,7 @@ import os
 sys.path.append(os.getcwd())
 
 from app.core.config import settings
-from app.services.rag.orchestrator import PipelineOrchestrator
+from app.rag.orchestrator import PipelineOrchestrator
 
 # Logger
 logging.basicConfig(level=logging.INFO)

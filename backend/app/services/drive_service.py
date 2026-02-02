@@ -8,7 +8,7 @@ from app.core.config import settings
 from fastapi import HTTPException
 from google.auth.transport.requests import Request
 import uuid
-from app.core.gcp_clients import db, get_drive_service as get_sa_drive_service
+from app.core.gcp_clients import get_firestore_client, get_drive_service as get_sa_drive_service
 from app.models.watch import WatchChannelSchema
 from app.utils.id_utils import to_internal_id, to_external_id
 from datetime import datetime
@@ -159,7 +159,7 @@ async def register_user_watch(user: UserSchema, base_url: str):
         
         # 0. 중복 방지 로직 (Optimization)
         # 이미 해당 유저의 유효한 채널이 있는지 DB에서 검색
-        existing_channels = db.collection('watch_channels').where('user_email', '==', user.email).stream()
+        existing_channels = get_firestore_client().collection('watch_channels').where('user_email', '==', user.email).stream()
         
         current_time_ms = int(time.time() * 1000)
         valid_until_threshold = current_time_ms + (24 * 60 * 60 * 1000) # 최소 24시간 이상 남았는지 확인
@@ -185,7 +185,7 @@ async def register_user_watch(user: UserSchema, base_url: str):
                 print(f"[Auto-Watch] 기존 채널 Stop 실패 (무시됨): {stop_error}")
             
             # DB에서 삭제
-            db.collection('watch_channels').document(doc.id).delete()
+            get_firestore_client().collection('watch_channels').document(doc.id).delete()
 
 
         # 1. Webhook URL 구성
@@ -220,7 +220,7 @@ async def register_user_watch(user: UserSchema, base_url: str):
             expiration=int(response.get('expiration', 0))
         )
         
-        db.collection('watch_channels').document(channel_id).set(watch_data.dict(by_alias=True))
+        get_firestore_client().collection('watch_channels').document(channel_id).set(watch_data.dict(by_alias=True))
         print(f"[Auto-Watch] 채널 등록 성공: {channel_id}")
         
     except Exception as e:

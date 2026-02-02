@@ -11,7 +11,7 @@ from google.cloud import firestore
 
 # [통합] 기존 프로젝트 설정 및 DB 가져오기
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 
 from google.oauth2 import service_account
 
@@ -22,7 +22,7 @@ logger.setLevel(logging.INFO)
 class DocAIExtractor:
     def __init__(self):
         # [통합] 기존 전역 DB 클라이언트(db) 사용
-        self.db = db
+        self.db = get_firestore_client()
         
         # GCS 설정 (Project ID 명시)
         self.project_id = settings.PROJECT_ID

@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     SUPER_ADMIN_EMAIL: str = "" # Super Admin Email for initial setup
     
     # Default to service_account.json in the backend root if not set in env
-    GOOGLE_APPLICATION_CREDENTIALS: str = "service_account.json"  # Google Cloud Credentials
+    # GOOGLE_APPLICATION_CREDENTIALS: Optional for Cloud Run (ADC), Required for Local if no gcloud auth
+    GOOGLE_APPLICATION_CREDENTIALS: str | None = None
     
     # OAuth 2.0 (From Google Cloud Console)
     GOOGLE_CLIENT_ID: str = "" 

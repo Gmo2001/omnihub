@@ -4,7 +4,7 @@ from typing import List, Any, Dict, Optional
 from pydantic import BaseModel
 from google.cloud import aiplatform
 from vertexai.language_models import TextEmbeddingModel  # Or use your preferred client
-from app.services.firestore_repo import FirestoreRepo
+from app.rag.firestore_repo import FirestoreRepo
 from app.common.schemas import Evidence
 
 # (실제 구현 시 RAGScope 모델은 rag_api.py와 공유 필요. 여기선 Dict로 처리)
@@ -208,7 +208,7 @@ class Retriever:
         # Optimization: This is slow. Ideally text should be in Firestore or Vector Metadata.
         try:
             # 1. Check if 'chunks' collection has GCS URI
-            chunk_ref = self.repo.db.collection("chunks").document(doc_id).get()
+            chunk_ref = self.repo.get_firestore_client().collection("chunks").document(doc_id).get()
             if not chunk_ref.exists: return []
             
             gcs_uri = chunk_ref.get("gcs_chunks_uri")

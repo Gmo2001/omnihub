@@ -3,18 +3,18 @@ import asyncio
 from typing import Optional, List
 
 # Service Imports
-from app.services.rag.steps.run_docai_extract import DocAIExtractor
-from app.services.rag.steps.build_profile import ProfileBuilder
-from app.services.rag.steps.classify_doc_policy import PolicyClassifier
-from app.services.rag.steps.split_and_chunk import DocChunker
-from app.services.rag.steps.summarize_for_card import CardSummarizer
-from app.services.rag.steps.extract_entities_relations import EntityExtractor
-from app.services.rag.steps.merge_doc_artifacts import DocBundleMerger
-from app.services.rag.steps.build_graph_edges import GraphEdgeBuilder
-from app.services.rag.steps.edge_ranker import EdgeRanker
-from app.services.rag.steps.embed_chunks import ChunkEmbedder
-from app.services.rag.steps.upsert_vector_index import VectorIndexUpserter
-from app.services.rag.steps.upsert_doc_index_meta import DocIndexUpserter
+from app.rag.steps.run_docai_extract import DocAIExtractor
+from app.rag.steps.build_profile import ProfileBuilder
+from app.rag.steps.classify_doc_policy import PolicyClassifier
+from app.rag.steps.split_and_chunk import DocChunker
+from app.rag.steps.summarize_for_card import CardSummarizer
+from app.rag.steps.extract_entities_relations import EntityExtractor
+from app.rag.steps.merge_doc_artifacts import DocBundleMerger
+from app.rag.steps.build_graph_edges import GraphEdgeBuilder
+from app.rag.steps.edge_ranker import EdgeRanker
+from app.rag.steps.embed_chunks import ChunkEmbedder
+from app.rag.steps.upsert_vector_index import VectorIndexUpserter
+from app.rag.steps.upsert_doc_index_meta import DocIndexUpserter
 
 # Logger
 logger = logging.getLogger("PipelineOrchestrator")
@@ -106,7 +106,7 @@ class PipelineOrchestrator:
         except Exception as e:
             logger.error(f"💥 [Pipeline] Failed at {file_id}: {e}")
             # 에러 상태 업데이트 로직 추가 가능
-            # db.collection("files").document(file_id).update({"pipeline_status": "failed"})
+            # get_firestore_client().collection("files").document(file_id).update({"pipeline_status": "failed"})
 
 # Singleton Instance
 orchestrator = PipelineOrchestrator()

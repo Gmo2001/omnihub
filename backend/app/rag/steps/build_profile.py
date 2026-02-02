@@ -9,7 +9,7 @@ from google.cloud import firestore
 
 # [통합] 기존 프로젝트 Config 사용
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 
 # 로거 설정
 logger = logging.getLogger("ProfileBuilder")
@@ -20,7 +20,7 @@ logger.setLevel(logging.INFO)
 class ProfileBuilder:
     def __init__(self):
         # [통합] 전역 DB 클라이언트 사용
-        self.db = db
+        self.db = get_firestore_client()
         self.tenant_id = getattr(settings, "TENANT_ID", "default_tenant")
         self.engagement_id = getattr(settings, "ENGAGEMENT_ID", "default_engagement")
         

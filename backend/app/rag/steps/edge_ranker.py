@@ -3,14 +3,14 @@ import math
 from google.cloud import firestore
 
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 
 logger = logging.getLogger("EdgeRanker")
 logger.setLevel(logging.INFO)
 
 class EdgeRanker:
     def __init__(self):
-        self.db = db
+        self.db = get_firestore_client()
         self.per_doc_cap = int(getattr(settings, "PER_DOC_CAP", 50))
         self.ranker_version = getattr(settings, "EDGE_RANKER_VERSION", "v1")
         self.concept_df = {}

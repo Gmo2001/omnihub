@@ -1,5 +1,5 @@
 from datetime import datetime
-from app.core.gcp_clients import db, get_drive_service
+from app.core.gcp_clients import get_firestore_client, get_drive_service
 from app.models.file import FileSchema
 
 def resolve_full_path(service, parents, current_path=""):
@@ -40,7 +40,7 @@ def sync_file_metadata(file_id: str, drive_service=None):
         if file_metadata.get('trashed'):
             # TODO: 실제 삭제 정책에 따라 delete()를 할지 status update를 할지 결정 필요.
             # 현재는 soft delete 방식 유지.
-            db.collection('files').document(file_id).update({'status': 'deleted'})
+            get_firestore_client().collection('files').document(file_id).update({'status': 'deleted'})
             print(f"File {file_id} marked as deleted.")
             return
 
@@ -76,7 +76,7 @@ def sync_file_metadata(file_id: str, drive_service=None):
         )
 
         # 3. Firestore에 저장 (Set with merge=True)
-        db.collection('files').document(file_id).set(file_obj.model_dump(), merge=True) # -> 주소를 file_id로 지정해서 저장함!
+        get_firestore_client().collection('files').document(file_id).set(file_obj.model_dump(), merge=True) # -> 주소를 file_id로 지정해서 저장함!
         print(f"Successfully synced metadata for: {file_obj.name}")
         
         return file_obj # Pydantic 객체 반환 (타입 안전성 확보)

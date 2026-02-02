@@ -6,7 +6,7 @@ from google.cloud import firestore
 
 # [통합] Backend Imports
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 
 # Logger
 logger = logging.getLogger("DocBundleMerger")
@@ -14,7 +14,7 @@ logger.setLevel(logging.INFO)
 
 class DocBundleMerger:
     def __init__(self):
-        self.db = db
+        self.db = get_firestore_client()
         self.project_id = settings.PROJECT_ID
         self.bucket_name = getattr(settings, "GCS_BUCKET", f"{self.project_id}-docai-output")
         self.bucket = storage.Client(project=self.project_id).bucket(self.bucket_name)

@@ -2,7 +2,7 @@ from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField # Schema 정의용
 from google.api_core.exceptions import NotFound
 from app.core.config import settings
-from app.core.gcp_clients import db # get_credentials 제거 (사용 안함)
+from app.core.gcp_clients import get_firestore_client # get_credentials 제거 (사용 안함)
 import datetime
 import json
 import uuid

@@ -1,0 +1,43 @@
+{
+    "version": "v1",
+    "folder_rules": [
+        {
+            "pattern": "/Confidential",
+            "security": "High",
+            "ssot": "Gold"
+        },
+        {
+            "pattern": "/Public/Reports",
+            "security": "Low",
+            "ssot": "Silver"
+        },
+        {
+            "pattern": "/Manuals",
+            "security": "Medium",
+            "ssot": "Gold"
+        }
+    ],
+    "keyword_rules": [
+        {
+            "keyword": "연봉",
+            "security": "High",
+            "ssot": "None"
+        },
+        {
+            "keyword": "계약서",
+            "security": "High",
+            "ssot": "Gold"
+        },
+        {
+            "keyword": "가이드",
+            "security": "Low",
+            "ssot": "Silver"
+        }
+    ],
+    "permission_rules": [
+        {
+            "condition": "anyone_can_read",
+            "security_max": "Medium"
+        }
+    ]
+}

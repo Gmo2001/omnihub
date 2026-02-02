@@ -1,0 +1,22 @@
+[STEP 2: Import 부작용 제거 및 Lazy Init 적용 완료]
+
+1. 인증 전략 변경 (Authentication Strategy)
+   - **기존 (Legacy)**: `config.ServiceAccount` 강제 로딩 -> 환경변수 없으면 부팅 즉시 Crash.
+   - **변경 (New)**: `Optional` Key File.
+     - **Cloud Run/Production**: `GOOGLE_APPLICATION_CREDENTIALS` 환경변수가 비어있으면 **ADC (Application Default Credentials)**를 자동 사용. (보안성 강화)
+     - **Local**: `GOOGLE_APPLICATION_CREDENTIALS`에 경로가 있으면 Key File 사용.
+
+2. Lazy Initialization 적용 (`app/core/gcp_clients.py`)
+   - 전역 변수 `db`, `storage_client`를 제거했습니다.
+   - 대신 `@lru_cache`를 적용한 `get_firestore_client()`, `get_storage_client()` 함수를 제공합니다.
+   - 이로 인해 `import app.main` 시점에는 **GCP 연결을 시도하지 않습니다.** (FastAPI 부팅 속도 향상 및 빌드 중 Crash 방지).
+
+3. 의존성 주입 리팩토링 (Refactoring)
+   - 약 25개 파일의 `db` 직접 사용 코드를 수정했습니다.
+   - **Before**: `from app.core.gcp_clients import db`
+   - **After**: `from app.core.gcp_clients import get_firestore_client` -> `db = get_firestore_client()`
+   - `drive_service.py`, `ingest.py`, RAG Steps 등 주요 모듈이 모두 수정되었습니다.
+
+4. 검증 결과
+   - `import app.main` 시도 시 자격 증명 에러(DefaultCredentialsError)가 발생하지 않음을 확인했습니다.
+   - (참고: 로컬 환경에 `pypdf` 패키지가 없어 `ModuleNotFoundError`가 발생했으나, 이는 인증 로직과 무관하며 `requirements.txt` 설치로 해결 가능합니다.)

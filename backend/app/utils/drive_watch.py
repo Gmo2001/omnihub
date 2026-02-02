@@ -1,5 +1,5 @@
 import uuid
-from app.core.gcp_clients import get_drive_service, db
+from app.core.gcp_clients import get_drive_service, get_firestore_client
 from app.core.config import settings
 
 def start_watching_drive(webhook_url: str = None):
@@ -46,7 +46,7 @@ def start_watching_drive(webhook_url: str = None):
 
         # 3. 채널 정보를 DB에 저장 (나중에 stop() 할 때 필요)
         # 'system' 컬렉션에 현재 활성화된 채널 정보 저장
-        db.collection('system').document('drive_channel_info').set(result, merge=True)
+        get_firestore_client().collection('system').document('drive_channel_info').set(result, merge=True)
         
         print(f"Watch Started: {result}")
         return result

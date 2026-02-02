@@ -7,7 +7,7 @@ from google.cloud import firestore
 
 # [통합] Backend Imports
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 
 # Logger
 logger = logging.getLogger("CardSummarizer")
@@ -15,7 +15,7 @@ logger.setLevel(logging.INFO)
 
 class CardSummarizer:
     def __init__(self):
-        self.db = db
+        self.db = get_firestore_client()
         self.project_id = settings.PROJECT_ID
         self.location = getattr(settings, "VERTEX_LOCATION", "us-central1")
         self.bucket_name = getattr(settings, "GCS_BUCKET", f"{self.project_id}-docai-output")

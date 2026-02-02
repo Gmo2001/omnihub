@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from app.utils.id_utils import to_internal_id
 from authlib.integrations.starlette_client import OAuth
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from app.models.user import UserSchema
 from datetime import datetime, timedelta
 from app.services.log_service import log_user_action
@@ -71,7 +71,7 @@ async def auth_callback(request: Request, background_tasks: BackgroundTasks):
     refresh_token_google = token.get('refresh_token')
 
     # 5. Firestore 업데이트 (Upsert)
-    user_ref = db.collection('users').document(str(email)) # 이메일을 Key로 사용 (간편함)
+    user_ref = get_firestore_client().collection('users').document(str(email)) # 이메일을 Key로 사용 (간편함)
     
     # 기존 유저 확인
     existing_user_snapshot = user_ref.get()
@@ -225,7 +225,7 @@ async def exchange_auth_code(data: GoogleAuthCode, background_tasks: BackgroundT
         raise HTTPException(status_code=400, detail="Could not retrieve email")
 
     # --- User Upsert Logic ---
-    user_ref = db.collection('users').document(str(email))
+    user_ref = get_firestore_client().collection('users').document(str(email))
     existing_user_snapshot = user_ref.get()
     
     final_role = "user"

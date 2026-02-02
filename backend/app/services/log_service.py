@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, Dict, Any
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from app.models.user import UserSchema
 from app.models.log import LogSchema, ActionType
 
@@ -35,7 +35,7 @@ def log_user_action(
         
         # 1. Add to Firestore (Auto-ID)
         log_dict = log_entry.dict(by_alias=True)
-        db.collection(LOGS_COLLECTION).add(log_dict)
+        get_firestore_client().collection(LOGS_COLLECTION).add(log_dict)
         
         # 2. Add to BigQuery (Direct Stream)
         stream_logs_to_bigquery(log_dict)

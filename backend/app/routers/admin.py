@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from typing import List, Optional
 from pydantic import BaseModel
 from app.services.bq_service import get_bq_client, DATASET_ID, LOGS_TABLE
@@ -34,7 +34,7 @@ async def read_users(
     limit: int = 100, 
     current_user: UserSchema = Depends(get_current_admin_user)
 ):
-    users_ref = db.collection("users").limit(limit).offset(skip)
+    users_ref = get_firestore_client().collection("users").limit(limit).offset(skip)
     docs = users_ref.stream()
     users = []
     for doc in docs:
@@ -47,7 +47,7 @@ async def update_user(
     user_update: UserUpdate, 
     current_user: UserSchema = Depends(get_current_admin_user)
 ):
-    user_ref = db.collection("users").document(email)
+    user_ref = get_firestore_client().collection("users").document(email)
     doc = user_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="User not found")

@@ -7,7 +7,7 @@ from google.cloud import firestore
 
 # [통합] Backend Imports
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from app.common.enums import SecurityLevel, SSoTLevel
 
 # Logger
@@ -84,7 +84,7 @@ class PolicyEngine:
 # --- Main Processor ---
 class PolicyClassifier:
     def __init__(self):
-        self.db = db
+        self.db = get_firestore_client()
         self.tenant_id = getattr(settings, "TENANT_ID", "default_tenant")
         self.engagement_id = getattr(settings, "ENGAGEMENT_ID", "default_engagement")
         self.policy_version = getattr(settings, "POLICY_RULE_VERSION", "v1")

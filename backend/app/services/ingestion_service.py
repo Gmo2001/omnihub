@@ -1,4 +1,4 @@
-from app.core.gcp_clients import get_drive_service, db
+from app.core.gcp_clients import get_drive_service, get_firestore_client
 import io
 from googleapiclient.http import MediaIoBaseDownload
 from app.models.user import UserSchema
@@ -13,7 +13,7 @@ from app.utils.id_utils import to_internal_id # Restore util
 from app.services.log_service import log_user_action # Restore log
 from app.models.log import ActionType # Restore enum
 # [RAG] Orchestrator Import
-from app.services.ai_a.pipeline_orchestrator import PipelineOrchestrator
+from app.rag.orchestrator import PipelineOrchestrator
 import asyncio
 import io 
 
@@ -100,7 +100,7 @@ def process_and_catalog_file(
 
     # 0.5 Delta Sync Check (Time-Traveling)
     current_modified_time = drive_meta.get("modifiedTime")
-    doc_ref = db.collection('files').document(file_id)
+    doc_ref = get_firestore_client().collection('files').document(file_id)
     doc_snap = doc_ref.get()
     
     if doc_snap.exists:

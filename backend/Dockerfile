@@ -24,4 +24,4 @@ EXPOSE 8080
 
 # 8. 서버 실행 명령어 (Uvicorn 이용)
 # 0.0.0.0으로 열어야 외부 접속이 가능합니다.
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query, Depends
-from app.core.gcp_clients import db, get_drive_service
+from app.core.gcp_clients import get_firestore_client, get_drive_service
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
 from app.dependencies import get_current_user
@@ -45,7 +45,7 @@ async def get_virtual_tree():
     (Real DB Use)
     """
     try:
-        docs = db.collection('files').stream()
+        docs = get_firestore_client().collection('files').stream()
         
         tree = {"name": "Root", "children": [], "is_folder": True}
         
@@ -101,7 +101,7 @@ async def get_file(
     """
     # 1. Real DB Query
     try:
-        doc_ref = db.collection('files').document(file_id)
+        doc_ref = get_firestore_client().collection('files').document(file_id)
         doc = doc_ref.get()
         
         if not doc.exists:  
@@ -165,7 +165,7 @@ async def download_file(
     
     # [Phase 3] 파일 정보 조회하여 부서 ID 확보 (DB 조회 Cost 추가됨)
     try:
-        # doc = db.collection('files').document(file_id).get()  <-- DB 조회 불필요하면 제거 가능하지만, 파일 존재 체크용으로 둠
+        # doc = get_firestore_client().collection('files').document(file_id).get()  <-- DB 조회 불필요하면 제거 가능하지만, 파일 존재 체크용으로 둠
         
         background_tasks.add_task(
             log_user_action,

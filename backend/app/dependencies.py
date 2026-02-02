@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from app.models.user import UserSchema
 
 # [Fix] OAuth2PasswordBearer -> HTTPBearer (Token Paste Mode)
@@ -27,7 +27,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise credentials_exception
         
     # 2. DB에서 유저 조회 (Real DB Check)
-    user_ref = db.collection("users").document(email).get()
+    user_ref = get_firestore_client().collection("users").document(email).get()
     
     if not user_ref.exists:
         raise credentials_exception

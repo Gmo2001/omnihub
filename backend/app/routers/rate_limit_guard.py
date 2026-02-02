@@ -109,8 +109,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # 여기선 간단히 항상 통과 (운영 최소 픽스는 firestore)
             return True, 0
             
-        transaction = db.transaction()
-        doc_ref = db.document(doc_path)
+        transaction = get_firestore_client().transaction()
+        doc_ref = get_firestore_client().document(doc_path)
         
         @firestore.transactional
         def update_in_transaction(transaction, ref):

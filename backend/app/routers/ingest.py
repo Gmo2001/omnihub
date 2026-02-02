@@ -6,11 +6,11 @@ from google.cloud import firestore # Added for ArrayUnion
 from app.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
-from app.services.rag.steps.run_docai_extract import DocAIExtractor # [Modified] Use new Extractor from run_docai_extract
+from app.rag.steps.run_docai_extract import DocAIExtractor # [Modified] Use new Extractor from run_docai_extract
 from app.services.ingestion_service import ingest_file_content, process_and_catalog_file
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from pydantic import BaseModel
 from typing import List, Any, Dict
 
@@ -61,7 +61,7 @@ async def ingest_drive_file(
 
     # [RAG Pipeline Trigger]
     try:
-        from app.services.rag.orchestrator import PipelineOrchestrator
+        from app.rag.orchestrator import PipelineOrchestrator
         orchestrator = PipelineOrchestrator()
         
         # internal_id extraction (fil_ prefix)
@@ -106,7 +106,7 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
         failed_list = []
         
         # [System Status] Start Tracking
-        db.collection("system_status").document(folder_id).set({
+        get_firestore_client().collection("system_status").document(folder_id).set({
             "status": "running",
             "start_time": start_time,
             "total_files": len(all_files),
@@ -157,7 +157,7 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
             
             # Periodic Update (Every 5 files)
             if processed_count % 5 == 0:
-                db.collection("system_status").document(folder_id).update({
+                get_firestore_client().collection("system_status").document(folder_id).update({
                     "processed": processed_count,
                     "skipped": skipped_count
                 })
@@ -167,7 +167,7 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
         duration = (end_time - start_time).total_seconds()
         
         # [System Status] Complete Tracking
-        db.collection("system_status").document(folder_id).update({
+        get_firestore_client().collection("system_status").document(folder_id).update({
             "status": "completed",
             "end_time": end_time,
             "duration": duration,
@@ -207,7 +207,7 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
     except Exception as e:
         print(f"[Sync-Task] Critical Error: {e}")
         # Mark as failed in DB
-        db.collection("system_status").document(folder_id).set({
+        get_firestore_client().collection("system_status").document(folder_id).set({
              "status": "failed",
              "error": str(e),
              "end_time": datetime.now()
@@ -232,7 +232,7 @@ def sync_drive_folder(
 
     # [Privacy Guard] Auto-whitelist this folder
     try:
-        user_ref = db.collection('users').document(current_user.email)
+        user_ref = get_firestore_client().collection('users').document(current_user.email)
         # Use ArrayUnion to append without reading first (Atomic)
         user_ref.update({
             "monitored_folder_ids": firestore.ArrayUnion([request.folder_id])
@@ -270,7 +270,7 @@ async def process_drive_files_batch(
         queued_count += 1
         
         # 상태 업데이트
-        db.collection('files').document(item.file_id).update({
+        get_firestore_client().collection('files').document(item.file_id).update({
             "aiStatus": "processing",
             "aiMethod": "docai_batch_async"
         })

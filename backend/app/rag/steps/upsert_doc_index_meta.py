@@ -3,7 +3,7 @@ from google.cloud import firestore
 
 # [통합] Backend Imports
 from app.core.config import settings
-from app.core.gcp_clients import db
+from app.core.gcp_clients import get_firestore_client
 from app.common.enums import SecurityLevel, SSoTLevel, ReviewStatus
 
 # Logger
@@ -12,7 +12,7 @@ logger.setLevel(logging.INFO)
 
 class DocIndexUpserter:
     def __init__(self):
-        self.db = db
+        self.db = get_firestore_client()
         self.doc_index_version = getattr(settings, "DOC_INDEX_VERSION", "v1")
 
     def get_dict(self, collection: str, doc_id: str):
