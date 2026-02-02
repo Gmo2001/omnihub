@@ -5,9 +5,9 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Request, HTTPException
-from app.services.firestore_repo import FirestoreRepo
-from app.services.retriever import Retriever
-from app.services.generator import Generator
+from app.services.rag.firestore_repo import FirestoreRepo
+from app.services.rag.retriever import Retriever
+from app.services.rag.generator import Generator
 
 logger = logging.getLogger("RAG_API")
 router = APIRouter(prefix="/api/search", tags=["RAG"])

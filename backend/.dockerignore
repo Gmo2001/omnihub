@@ -1,7 +1,31 @@
-venv/
+# Git
+.git
+.gitignore
+
+# Python
 __pycache__/
-service_account.json
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.pytest_cache/
+
+# Enviroment
 .env
-*.pyc
-.git/
+.env.local
+.env.*
+
+# Secrets (CRITICAL)
 secrets/
+service_account.json
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+
+# Local/Temp
+logs/
+temp/
+static/

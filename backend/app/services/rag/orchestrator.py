@@ -3,18 +3,18 @@ import asyncio
 from typing import Optional, List
 
 # Service Imports
-from app.services.ai_a.run_docai_extract import DocAIExtractor
-from app.services.ai_a.build_profile import ProfileBuilder
-from app.services.ai_a.classify_doc_policy import PolicyClassifier
-from app.services.ai_a.split_and_chunk import DocChunker
-from app.services.ai_a.summarize_for_card import CardSummarizer
-from app.services.ai_a.extract_entities_relations import EntityExtractor
-from app.services.ai_a.merge_doc_artifacts import DocBundleMerger
-from app.services.ai_a.build_graph_edges import GraphEdgeBuilder
-from app.services.ai_a.edge_ranker import EdgeRanker
-from app.services.ai_a.embed_chunks import ChunkEmbedder
-from app.services.ai_a.upsert_vector_index import VectorIndexUpserter
-from app.services.ai_a.upsert_doc_index_meta import DocIndexUpserter
+from app.services.rag.steps.run_docai_extract import DocAIExtractor
+from app.services.rag.steps.build_profile import ProfileBuilder
+from app.services.rag.steps.classify_doc_policy import PolicyClassifier
+from app.services.rag.steps.split_and_chunk import DocChunker
+from app.services.rag.steps.summarize_for_card import CardSummarizer
+from app.services.rag.steps.extract_entities_relations import EntityExtractor
+from app.services.rag.steps.merge_doc_artifacts import DocBundleMerger
+from app.services.rag.steps.build_graph_edges import GraphEdgeBuilder
+from app.services.rag.steps.edge_ranker import EdgeRanker
+from app.services.rag.steps.embed_chunks import ChunkEmbedder
+from app.services.rag.steps.upsert_vector_index import VectorIndexUpserter
+from app.services.rag.steps.upsert_doc_index_meta import DocIndexUpserter
 
 # Logger
 logger = logging.getLogger("PipelineOrchestrator")

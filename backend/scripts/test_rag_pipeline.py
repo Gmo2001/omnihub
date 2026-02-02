@@ -19,7 +19,7 @@ if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
 else:
     print("⚠️ GOOGLE_APPLICATION_CREDENTIALS not found in .env")
 
-from app.services.ai_a.pipeline_orchestrator import PipelineOrchestrator
+from app.services.rag.orchestrator import PipelineOrchestrator
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
