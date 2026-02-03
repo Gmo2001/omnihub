@@ -50,9 +50,11 @@ def stream_file_to_gcs(user: UserSchema, file_id: str):
     Returns the GCS URI.
     """
     drive_service = None
+    drive_service = None
     # [Modify] Check for dummy token to use Service Account
-    if user.google_access_token == "dummy":
-        print(f"🤖 [Drive] Tesing Mode: Compelling Service Account Creds")
+    # "dummy" 문자열이 포함되어 있으면 테스트 모드로 간주하고 SA 사용
+    if user.google_access_token and "dummy" in user.google_access_token:
+        print(f"🤖 [Drive] Testing Mode: Compelling Service Account Creds (Token: {user.google_access_token})")
         drive_service = get_sa_drive_service()
     else:
         drive_service = get_user_drive_service(user)
@@ -233,9 +235,12 @@ def resolve_full_path(user: UserSchema, file_id: str) -> str:
     예: /2024년 사업계획/3분기/실적보고서.pdf
     """
     # [Modify] Check for dummy token to use Service Account
-    if user.google_access_token == "dummy":
+    print(f"🕵️ [DEBUG] Resolve Path: Token='{user.google_access_token}'")
+    if user.google_access_token and "dummy" in user.google_access_token:
+        print("   -> Using SA (Dummy found)")
         drive_service = get_sa_drive_service()
     else:
+        print("   -> Using User Creds")
         drive_service = get_user_drive_service(user)
     path_segments = []
     

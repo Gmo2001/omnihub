@@ -209,6 +209,8 @@ def process_and_catalog_file(
         }
     )
 
+    # [Added] Return file_id for downstream tasks (Orchestrator)
+    result["file_id"] = file_id
     return result
 
     # [RAG Trigger]

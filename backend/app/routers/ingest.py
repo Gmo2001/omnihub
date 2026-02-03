@@ -38,38 +38,30 @@ class BatchProcessRequest(BaseModel):
 @router.post("/ingest")
 async def ingest_drive_file(
     request: IngestRequest,
+    background_tasks: BackgroundTasks,
     current_user: UserSchema = Depends(get_current_user)
 ):
     """
     [Phase 2] 사용자의 구글 드라이브 파일을 GCS(Google Cloud Storage)로 스트리밍 전송합니다.
-    [Refactoring] 공통 로직(process_and_catalog_file)을 사용하도록 변경됨.
+    [Refactoring] 공통 로직(process_and_catalog_file)을 사용하고, RAG 파이프라인을 백그라운드에서 실행합니다.
     """
     if not current_user.google_access_token:
         raise HTTPException(status_code=400, detail="User is not connected to Google Drive")
         
     try:
-        # Refactored Logic
+        # 1. Ingest File to GCS & Firestore
         result = process_and_catalog_file(current_user, request.file_id)
         
-        return {
-            "status": "success",
-            "message": "File streamed to GCS successfully",
-            "data": result
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # [RAG Pipeline Trigger]
-    try:
-        from app.rag.orchestrator import PipelineOrchestrator
-        orchestrator = PipelineOrchestrator()
-        
+        # 2. Trigger RAG Pipeline (Background Task)
         # internal_id extraction (fil_ prefix)
         internal_file_id = result.get("file_id") 
         gcs_uri = result.get("gcs_uri")
         mime_type = result.get("mime_type")
 
-        # Run in background to execute full pipeline
+        # Orchestrator Import (Lazy import to avoid circular dependency)
+        from app.rag.orchestrator import PipelineOrchestrator
+        orchestrator = PipelineOrchestrator()
+
         background_tasks.add_task(
             orchestrator.run_pipeline, 
             file_id=internal_file_id,
@@ -77,15 +69,16 @@ async def ingest_drive_file(
             mime_type=mime_type
         )
         print(f"🚀 [Ingest] RAG Pipeline triggered for {internal_file_id}")
-        
-    except Exception as e:
-        print(f"⚠️ [Ingest] Failed to trigger RAG Pipeline: {e}")
 
-    return {
-        "status": "success",
-        "message": "File streamed and RAG Pipeline started",
-        "data": result
-    }
+        return {
+            "status": "success",
+            "message": "File ingested and RAG Pipeline started in background",
+            "data": result
+        }
+
+    except Exception as e:
+        print(f"❌ [Ingest] Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 import asyncio
 

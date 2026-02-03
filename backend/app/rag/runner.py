@@ -8,6 +8,10 @@ import os
 # Ensure backend root is in sys.path
 sys.path.append(os.getcwd())
 
+# [Local Run] Load .env explicitly for standalone script execution
+from dotenv import load_dotenv
+load_dotenv() # Load .env file
+
 from app.core.config import settings
 from app.rag.orchestrator import PipelineOrchestrator
 

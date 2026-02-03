@@ -19,8 +19,13 @@ app.add_middleware(
     allow_headers=["*"],      # 모든 헤더 허용 (Authorization 등)
 )
 
+from app.routers.auth_context import AuthContextMiddleware
+
 # 2. Authlib을 위한 세션 미들웨어 추가
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+
+# 3. Custom Auth Context Middleware (Headers -> AuthContext)
+app.add_middleware(AuthContextMiddleware)
 
 
 # 라우터 등록

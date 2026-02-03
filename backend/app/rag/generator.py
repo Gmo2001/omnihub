@@ -52,7 +52,9 @@ class Generator:
             # chunk key validation
             doc_title = chunk.get("doc_title", "Untitled")
             page = chunk.get("page", "?")
-            text = chunk.get("text", "").strip()
+            # [Fix] Support both 'text' (legacy) and 'snippet' (Evidence schema)
+            text = chunk.get("text") or chunk.get("snippet") or ""
+            text = text.strip()
             
             part = f"[{idx+1}] Source: {doc_title} (Page {page})\nContent: {text}"
             context_parts.append(part)

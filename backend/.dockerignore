@@ -28,4 +28,4 @@ _archive/
 # Local/Temp
 logs/
 temp/
-static/
+scripts/

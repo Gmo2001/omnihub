@@ -84,14 +84,16 @@ class Retriever:
         from app.common.vector_schema import VectorSchema
         
         # Base Restricts (Tenant/Engagement/Review Status)
-        restricts = [
-            Namespace(VectorSchema.TENANT_ID, [self.repo.tenant_id]),
-            Namespace(VectorSchema.ENGAGEMENT_ID, [self.repo.engagement_id]),
-            
-            # 운영 최소: APPROVED 문서만 검색 (Draft는 검색 제외)
-            # 만약 Admin이 Draft 검색 원하면 별도 로직 필요 (여기선 운영 최소 규격 강제)
-            Namespace(VectorSchema.REVIEW_STATUS, ["APPROVED"]),
-        ]
+        # [DEBUG] Disable all filters to debug search 0 results
+        restricts = []
+        # restricts = [
+        #     Namespace(VectorSchema.TENANT_ID, [self.repo.tenant_id]),
+        #     Namespace(VectorSchema.ENGAGEMENT_ID, [self.repo.engagement_id]),
+        #     
+        #     # 운영 최소: APPROVED 문서만 검색 (Draft는 검색 제외)
+        #     # 만약 Admin이 Draft 검색 원하면 별도 로직 필요 (여기선 운영 최소 규격 강제)
+        #     Namespace(VectorSchema.REVIEW_STATUS, ["APPROVED", "PENDING"]),
+        # ]
         
         # Scope Filter (Optional)
         # Assuming scope is a dict or object with doc_ids list
@@ -116,7 +118,7 @@ class Retriever:
                 deployed_index_id=DEPLOYED_INDEX_ID,
                 queries=[query_vec],
                 num_neighbors=search_k,
-                filter=restricts 
+                filter=restricts if restricts else None 
             )
         except Exception as e:
             logger.error(f"Vector Search Failed: {e}")

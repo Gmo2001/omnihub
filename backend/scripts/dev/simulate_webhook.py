@@ -14,9 +14,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.core.gcp_clients import get_drive_service, db
+from app.core.config import settings
 from app.models.user import UserSchema
 from app.services.ingestion_service import process_and_catalog_file
-from app.services.ai_a.pipeline_orchestrator import PipelineOrchestrator
+from app.rag.orchestrator import PipelineOrchestrator
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +26,9 @@ logger = logging.getLogger("SimulateWebhook")
 # ==========================================
 # 👇 테스트 설정
 # ==========================================
+# 사용자가 요청한 특정 테스트 폴더 ID
 TARGET_FOLDER_ID = "1gH1nvnYFLPNTutPMhLXcKKZ02zpM0L67" 
+
 USER_EMAIL = "edu_147@omnihub.com" # 로그용 가짜 이메일
 # ==========================================
 

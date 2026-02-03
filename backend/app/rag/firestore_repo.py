@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, List, Any
 from google.cloud import firestore
 from app.common.types import AuthContext
+from app.core.gcp_clients import db
 
 # AuthContext는 순환 참조 방지를 위해 여기서 import 안하고, dict/object로 가정하거나
 # TYPE_CHECKING 블록을 사용. 여기선 Any로 받음.
@@ -14,7 +15,7 @@ load_dotenv()
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 FIRESTORE_DB = os.getenv("FIRESTORE_DATABASE", "(default)")
 
-db = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DB)
+# db = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DB) # Removed local init
 logger = logging.getLogger("FirestoreRepo")
 
 class FirestoreRepo:
@@ -25,7 +26,7 @@ class FirestoreRepo:
         self.tenant_id = auth_ctx.tenant_id
         self.engagement_id = auth_ctx.engagement_id
         self.user_id = auth_ctx.user_id
-        self.db = get_firestore_client() # Global use
+        self.db = db # Global use
 
     def _scope_check(self, data: Dict[str, Any]) -> bool:
         """데이터의 Scope가 요청자와 일치하는지 확인 (Double Check)"""
@@ -37,14 +38,18 @@ class FirestoreRepo:
             return False
         return True
 
+    def get_firestore_client(self):
+        return self.db
+
+
     def _base_query(self, collection_name: str):
-        return (get_firestore_client().collection(collection_name)
+        return (self.db.collection(collection_name)
             .where("tenant_id", "==", self.tenant_id)
             .where("engagement_id", "==", self.engagement_id))
 
     # --- 1. Documents ---
     def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        doc_ref = get_firestore_client().collection("documents").document(doc_id).get()
+        doc_ref = self.db.collection("documents").document(doc_id).get()
         if not doc_ref.exists:
             return None
         
@@ -119,7 +124,7 @@ class FirestoreRepo:
         # e.g., @firestore.transactional def update_in_txn(txn, ...): ...
         
         # 운영 최소: Atomic Merge Update
-        get_firestore_client().collection("documents").document(doc_id).set(payload, merge=True)
+        self.db.collection("documents").document(doc_id).set(payload, merge=True)
         
         logger.info(f"Doc {doc_id} status updated to {new_status} by {self.user_id}")
 
@@ -129,7 +134,7 @@ class FirestoreRepo:
         # 만약 안넣었다면 profile/document를 통해 간접 확인해야 함.
         # B단계 스크립트에서 card에도 tenant_id 넣었음.
         
-        card_ref = get_firestore_client().collection("cards").document(doc_id).get()
+        card_ref = self.db.collection("cards").document(doc_id).get()
         if not card_ref.exists:
             return None
             
@@ -158,14 +163,14 @@ class FirestoreRepo:
         return {"concepts": concepts, "docs": docs}
 
     def get_doc_neighbors(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        ref = get_firestore_client().collection("graph_serving_docs").document(doc_id).get()
+        ref = self.db.collection("graph_serving_docs").document(doc_id).get()
         if not ref.exists: return None
         data = ref.to_dict()
         if not self._scope_check(data): return None
         return data
 
     def get_concept_neighbors(self, concept_id: str) -> Optional[Dict[str, Any]]:
-        ref = get_firestore_client().collection("graph_serving_concepts").document(concept_id).get()
+        ref = self.db.collection("graph_serving_concepts").document(concept_id).get()
         if not ref.exists: return None
         data = ref.to_dict()
         if not self._scope_check(data): return None

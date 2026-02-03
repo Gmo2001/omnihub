@@ -138,10 +138,10 @@ class DocAIExtractor:
             self.db.collection("docai_results").document(file_id).set(result_doc, merge=True)
             
             # 원본 파일 상태 업데이트
-            self.db.collection("files").document(file_id).update({
+            self.db.collection("files").document(file_id).set({
                 "aiStatus": "completed",
                 "pageCount": page_count
-            })
+            }, merge=True)
             
             logger.info(f"✅ [DocAI] 최종 완료: {file_id} (페이지: {page_count})")
 
