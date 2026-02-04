@@ -5,8 +5,10 @@ import OmniHubTab from './components/OmniHubTab';
 import SecurityTab from './components/SecurityTab';
 import DriveSyncPanel from './components/DriveSyncPanel';
 import { OmniHubProvider, useOmniHub } from './context/OmniHubContext';
-import { Network, Settings, UserCircle, ShieldCheck, Loader2, AlertCircle, X } from 'lucide-react';
+import { Network, Settings, UserCircle, ShieldCheck, Loader2, AlertCircle, X, LogOut } from 'lucide-react';
 import { Role } from './types';
+import AdminUserManagement from './components/AdminUserManagement'; // New Component
+import ErrorBoundary from './components/ErrorBoundary';
 
 const GlobalLoader = () => (
   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center animate-in fade-in duration-300">
@@ -45,20 +47,21 @@ const MainLayout: React.FC = () => {
     activeTab, setActiveTab,
     currentRole, setCurrentRole,
     addLog, isDataReady, logs,
-    isGlobalLoading, globalError, dismissError
+    isGlobalLoading, globalError, dismissError,
+    isAuthenticated, logout,
+    userProfile, isAdmin, refreshUserProfile
   } = useOmniHub();
 
-  // Force default tab to CONNECT if no token
-  React.useEffect(() => {
-    if (!localStorage.getItem('omnihub_token') && activeTab !== TABS.CONNECT) {
-      setActiveTab(TABS.CONNECT);
-    }
-  }, [activeTab, setActiveTab]);
+  const [showAdminPanel, setShowAdminPanel] = React.useState(false);
 
-  const handleRoleChange = (newRole: Role) => {
-    setCurrentRole(newRole);
-    addLog(`권한 변경됨 -> ${newRole}`, 'INFO', 'SYSTEM', newRole);
-  };
+  // Force default tab to CONNECT if no token
+  // [DEV BYPASS] Temporarily disabled to allow access to OmniHub tab for UI development
+  // Auto-Redirect to OmniHub on Login
+  // Force default tab to CONNECT if no token
+  // [DEV BYPASS] Temporarily disabled to allow access to OmniHub tab for UI development
+  // Auto-Redirect logic moved to OmniHubContext.login() to allow manual access to Connect tab later.
+
+  /* Role change simulation logic removed */
 
   if (!isDataReady) {
     return (
@@ -74,6 +77,7 @@ const MainLayout: React.FC = () => {
 
       {isGlobalLoading && <GlobalLoader />}
       {globalError && <ErrorModal message={globalError} onClose={dismissError} />}
+      {showAdminPanel && <AdminUserManagement onClose={() => setShowAdminPanel(false)} />}
 
       {/* --- Top Navigation Bar --- */}
       <header className="h-16 flex items-center px-6 justify-between shrink-0 z-30 border-b border-white/5 bg-[#09090b]/80 backdrop-blur-md">
@@ -106,7 +110,7 @@ const MainLayout: React.FC = () => {
 
             <button
               onClick={() => setActiveTab(TABS.OMNIHUB)}
-              disabled={!localStorage.getItem('omnihub_token')}
+              disabled={!isAuthenticated}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === TABS.OMNIHUB
                 ? 'bg-[#1E1F2E] text-white shadow-inner shadow-black/50 border border-white/5'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed'
@@ -117,7 +121,7 @@ const MainLayout: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab(TABS.SECURITY)}
-              disabled={!localStorage.getItem('omnihub_token')}
+              disabled={!isAuthenticated}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === TABS.SECURITY
                 ? 'bg-[#1E1F2E] text-white shadow-inner shadow-black/50 border border-white/5'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed'
@@ -131,25 +135,63 @@ const MainLayout: React.FC = () => {
 
         {/* User Role & Settings */}
         <div className="flex items-center gap-4">
-          {/* ... User Role ... */}
-          <div className="flex items-center gap-3 pl-4 pr-2 py-1.5 rounded-full border border-white/10 bg-white/5 hover:border-white/20 transition-colors">
-            <div className={`w-2 h-2 rounded-full animate-pulse ${currentRole === 'admin' ? 'bg-indigo-500' : 'bg-slate-500'}`}></div>
-            <select
-              value={currentRole}
-              onChange={(e) => handleRoleChange(e.target.value as Role)}
-              className="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer font-medium min-w-[100px]"
+          {userProfile ? (
+            <div className="flex items-center gap-3 pl-1 pr-3 py-1 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-colors">
+              <div className="w-8 h-8 rounded-full bg-indigo-500 overflow-hidden shrink-0 border border-white/20">
+                {userProfile.photoUrl ? (
+                  <img src={userProfile.photoUrl} alt="User" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white"><UserCircle size={20} /></div>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-white leading-tight">{userProfile.displayName}</span>
+                <span className="text-[10px] text-indigo-300 font-medium tracking-wide uppercase">{userProfile.role}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-slate-400">
+              Not Logged In
+            </div>
+          )}
+
+          {isAdmin && (
+            <button
+              onClick={() => setShowAdminPanel(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
             >
-              <option value="admin">Admin</option>
-              <option value="manager">Manager</option>
-              <option value="viewer">Viewer</option>
-            </select>
-            <div className="w-7 h-7 bg-slate-700 rounded-full flex items-center justify-center text-slate-300">
-              <UserCircle size={16} />
+              <Network size={14} />
+              Admin Panel
+            </button>
+          )}
+
+          <div className="relative group z-50">
+            <button className="p-2 text-slate-500 hover:text-slate-300 hover:bg-white/5 rounded-full transition-colors">
+              <Settings size={20} />
+            </button>
+            {/* Settings Dropdown - Added pt-2 as invisible bridge to prevent mouseleave */}
+            <div className="absolute right-0 top-full w-48 pt-2 hidden group-hover:block hover:block animate-in fade-in slide-in-from-top-2">
+              <div className="bg-[#1E1F2E] border border-white/10 rounded-xl shadow-2xl p-2">
+                <div className="text-[10px] text-slate-500 font-bold px-3 py-2 uppercase tracking-wider">Settings</div>
+                <button
+                  disabled
+                  className="w-full text-left px-3 py-2 rounded-lg text-slate-400 text-sm hover:bg-white/5 disabled:opacity-50"
+                >
+                  Theme (Dark)
+                </button>
+                <div className="h-px bg-white/5 my-1"></div>
+                {isAuthenticated && (
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-red-400 text-sm hover:bg-red-500/10 font-medium transition-colors"
+                  >
+                    <LogOut size={14} />
+                    Log Out
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-          <button className="p-2 text-slate-500 hover:text-slate-300 hover:bg-white/5 rounded-full transition-colors">
-            <Settings size={20} />
-          </button>
         </div>
       </header>
 
@@ -158,28 +200,37 @@ const MainLayout: React.FC = () => {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#09090b] to-[#09090b] pointer-events-none z-0"></div>
         <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
           {activeTab === TABS.CONNECT && (
-            <DriveSyncPanel />
+            <ErrorBoundary fallbackTitle="Drive Sync Failed">
+              <DriveSyncPanel />
+            </ErrorBoundary>
           )}
           {activeTab === TABS.OMNIHUB && (
-            <OmniHubTab />
+            <ErrorBoundary fallbackTitle="OmniHub Missing">
+              <OmniHubTab />
+            </ErrorBoundary>
           )}
           {activeTab === TABS.SECURITY && (
-            <SecurityTab />
+            <ErrorBoundary fallbackTitle="Security Dashboard Failed">
+              <SecurityTab />
+            </ErrorBoundary>
           )}
         </div>
       </main>
 
-      {/* --- Persistent Event Log Panel --- */}
-      <EventLogPanel logs={logs} />
+      {/* --- Persistent Event Log Panel removed as requested --- */}
     </div>
   );
 };
 
+import { ToastProvider } from './context/ToastContext';
+
 const App: React.FC = () => {
   return (
-    <OmniHubProvider>
-      <MainLayout />
-    </OmniHubProvider>
+    <ToastProvider>
+      <OmniHubProvider>
+        <MainLayout />
+      </OmniHubProvider>
+    </ToastProvider>
   );
 };
 

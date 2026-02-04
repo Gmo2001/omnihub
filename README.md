@@ -1,80 +1,97 @@
-# 📘 AI-A 파이프라인 통합 및 연동 가이드 (Integration Roadmap)
+# OmniHub Frontend & Integration 가이드 (Up-to-Date)
 
-본 문서는 `backend/app/services/ai_a/allragpipeline` 패키지가 옴니허브(OmniHub) 백엔드와 **"어떻게 유기적으로 연결되는지"**, 그리고 **"왜 코드가 수정되었는지"**를 AI-A 개발자에게 설명하기 위한 **상세 통합 문서**입니다.
+이 문서는 OmniHub의 현재 프론트엔드/백엔드 통합 상태와 AI-A 관련 파이프라인 연동 현황을 설명합니다.
 
----
+## 1. 현재 시스템 아키텍처 (Current State)
 
-## 📅 1. 통합 배경 및 목표 (Context & Goal)
+현재 OmniHub는 **"Hybrid Integration State"** 입니다.
+- **Real (실제 동작)**: 구글 로그인, 드라이브 파일 탐색, 폴더 동기화(Sync), 파일 메타데이터 수집, 보안 로그 적재.
+- **Mock (가상 동작)**: AI 분석 결과(지식 그래프, RAG 답변)는 현재 백엔드 라우터에서 **가상 데이터(Mock Data)**를 반환합니다.
 
-### **[AS-IS] 기존 상황: "끊어진 연결 고리"**
-1.  **Ingestion 단절**: 파일은 업로드되지만, 파일 내부(PDF/이미지 등)의 메타데이터(페이지 수, 저자 등)는 무시됨. `metadata_extractor.py`가 존재했으나 사용되지 않음.
-2.  **Trigger 부재**: 파일이 드라이브에 도착해도 AI가 이를 알 수 없음. `run_docai_extract.py` 등은 사람이 수동으로 실행해야 하는 스크립트 형태였음.
-3.  **성능 이슈**: 파일 1개가 들어와도 전체 DB를 다시 훑는 비효율적 구조 (O(N)).
-
-### **[TO-BE] 개선 목표: "완전 자동화된 유기적 파이프라인"**
-1.  **Ingest Service 강화**: 파일 업로드 시 `metadata_extractor`를 통해 내부 속성까지 추출하여 DB에 저장.
-2.  **Analysis Service화**: AI 스크립트를 API/Webhook에서 호출 가능한 **서비스 클래스**로 리팩토링.
-3.  **자동 트리거(Trigger)**: Webhook → Ingestion → **Pipeline Runner 자동 실행**.
-4.  **성능 최적화**: 단일 문서 타격(O(1)) 및 병렬 처리 효율화.
+### 데이터 흐름
+`Frontend` -> `Backend Router` -> `Mock Data Generator` (AI Pipeline 미완성 시)
+`Frontend` -> `Backend Router` -> `Real Service` (Auth, Drive, Logging)
 
 ---
 
-## 🛠 2. 단계별 통합 과정 (Step-by-Step Changes)
+## 2. 주요 기능 및 변경 사항 (Key Features)
 
-### **Step 0. 사전 준비 & 통합 (Merged)**
-- **행동**: `feature/ai-a` 브랜치의 파일들과 AI-A팀이 새로 추가한 `run_docai_extract.py`, `metadata_extractor.py`를 하나로 합침.
-- **수정사항**: `run_docai_extract.py`는 단순 OCR 도구가 아니라, 이제 **Pipeline Runner의 핵심 구성요소(Phase A)**로 편입되었습니다.
+### 2.1. Sync Queue & Active Monitoring
+대량의 파일을 동기화할 때, 사용자가 진행 상황을 투명하게 알 수 있도록 **Sync Queue Panel**이 구현되었습니다.
+- **Active Task**: 현재 처리 중인(Processing) 파일명 표시.
+- **Up Next**: 대기 중인 파일 미리보기 (Queue Preview).
+- **Recent Completed**: 최근 처리된 파일의 상태(Success/Skip/Fail)를 실시간 리스트업.
+- **상태 정의**:
+    - 🟢 **Success**: 정상 수집 및 AI 분석 트리거 완료.
+    - ⚪ **Skip**: 드라이브 상에서 파일이 변경되지 않아 최적화를 위해 건너뜀 (Delta Sync).
+    - 🔴 **Fail**: 지원하지 않는 포맷(Sheet/Slide)이거나 에러 발생.
 
-### **Step 1. Ingestion 서비스 강화 (Metadata Extraction)**
-- **목표**: 파일 겉면 정보뿐 아니라 **내부 정보(페이지 수, 저자 등)**를 추출.
-- **적용**:
-    - `app/services/ingestion_service.py`에서 스트리밍 중 `metadata_extractor`를 호출하도록 로직 추가.
-    - **이유**: 페이지 수가 너무 많은 문서를 사전에 걸러내거나, 검색 품질을 높이기 위함.
+### 2.2. Graceful Sync Cancellation (안전한 동기화 중단)
+사용자가 긴 동기화 작업을 중간에 취소할 수 있는 기능입니다.
+- **Safety First**: "즉시 강제 종료(Kill)"가 아니라 **"안전한 중단(Graceful Abort)"** 방식을 채택했습니다.
+    - 현재 전송 중인 파일(예: 50% 진행된 500MB 영상)은 **끝까지 완료**하여 데이터 오염을 방지합니다.
+    - 그 후 대기열의 나머지 파일들은 즉시 취소 처리됩니다.
+- **UI Interaction**: `Stop Sync` 버튼 클릭 시 "Stopping..." 상태로 전환되며, 현재 파일이 완료되는 즉시 작업이 종료됩니다.
 
-### **Step 2. AI 서비스를 "호출 가능"하게 개조 (Refactoring)**
-- **대상**: `run_docai_extract.py` 등 모든 파이프라인 스크립트.
-- **변경**:
-    - 단순 스크립트(`if __name__ == "__main__":`)에서 외부에서 호출 가능한 **Class & Method** 구조로 변경.
-    - 특히 **`run(doc_id=...)`** 메서드를 표준화하여, 특정 파일 하나만 처리할 수 있도록 만듦.
+### 2.2. Indeterminate Loading State (AI Analysis)
+동기화(Sync)가 끝나면 자동으로 AI 분석 단계로 넘어갑니다. 시간 예측이 어렵기 때문에 **상태 기반 로딩(State-based Loading)**을 사용합니다.
+- **Flow**: `Idle` -> `Syncing (Files)` -> `Analyzing (AI Knowledge)` -> `Completed`
+- **Persistence**: 새로고침을 해도 백엔드의 동기화 작업은 **중단되지 않고 백그라운드에서 끝까지 수행**됩니다.
 
-### **Step 3. 파이프라인 트리거 연결 (The Organical Link)**
-- **핵심**: 파일 업로드 완료 시점(Webhook/Ingestion)에 **`PipelineRunner`를 자동으로 깨움.**
-- **데이터 흐름**:
-    1.  **Drive Webhook**: "새 파일 도착!" 감지.
-    2.  **Ingest Service**: GCS 저장 & 메타데이터 DB 기록.
-    3.  **Analysis Trigger (NEW)**: `PipelineRunner` 호출 (`--doc_id` 전달).
-    4.  **Pipeline Runner**: 
-        *   → `A_run_docai_extract` (OCR)
-        *   → `B_parallel_processing` (청킹, 요약, 엔티티)
-        *   → `C_knowledge_graph` (지식 그래프)
-        *   → `D_indexing` (벡터 DB 저장)
+### 2.3. System Kernel Panic Log (Security Dashboard)
+AI 파이프라인이나 동기화 작업 중 발생하는 심각한 오류(Critical Error)는 사용자에게 팝업으로 띄우지 않고, **보안 대시보드**에 통합 기록됩니다.
 
----
+- **저장소**: Firestore `sys_errors` 컬렉션
+    - **구조**: `sys_errors` / **`YYYY-MM-DD` (Document)** / `logs` (Sub-collection)
+    - **이유**: 날짜별 파티셔닝을 통해 조회 성능을 높이고, 오래된 로그 삭제(Retention Policy) 관리를 용이하게 함.
+- **표시**: Admin > Security Dashboard > System Kernel Panic Log (오늘 날짜의 로그만 표시)
+- **연동 파일**: `analysis_service.py` (AI), `ingest.py` (Sync) -> `log_system_error`
 
-## 💻 3. AI-A 개발자가 알아야 할 코드 변경 사항
-
-### **A. 성능 혁신: 전수 조사(O(N)) → 단일 타격(O(1))**
-모든 파이프라인 스크립트(`extract_file_meta`, `run_docai_extract`, `build_profile` 등)에 **단일 문서 처리 모드**가 추가되었습니다.
-
-*   **변경 전**: `run_batch()` → DB의 모든 파일을 Loop. (느림)
-*   **변경 후**: `run(doc_id="...")` → **해당 ID의 문서 하나만** `get()`하여 처리. (빠름)
-
-### **B. 안정성 강화: Race Condition 해결 (Phase B 순서 조정)**
-`pipeline_runner.py` 내부에서 병렬 처리 순서를 조정했습니다.
-
-*   **문제**: 청킹(`Split`)과 분석(`Extract/Summarize`)이 동시에 돌아가서, 분석기가 청크 파일을 못 찾는 에러 발생.
-*   **해결**: 
-    1.  **1조 (준비)**: `청킹` & `정책 분류` (완료 대기)
-    2.  **2조 (분석)**: `요약` & `엔티티 추출` (청킹 완료 후 실행)
-
-### **C. 리소스 최적화**
-*   **Worker 수**: Cloud Run 4GiB 메모리를 활용하기 위해 `MAX_WORKERS`를 4 → **8**로 설정.
+> **⚠️ 중요 (Environment Sync)**:
+> 현재 로컬 개발 환경(`localhost`)에 적용된 최신 로그 로직(날짜별 저장)은 **Cloud Run 서버에 배포되기 전까지는 반영되지 않습니다.**
+> 따라서 Cloud Run 배포 버전을 사용하는 프론트엔드에서는 최신 포맷으로 저장된 로그(오늘 날짜 폴더 내의 로그)가 보이지 않을 수 있습니다.
+> (`verify_error_logging.py`로 생성된 테스트 로그는 Firestore에 잘 들어갔으나, 구버전 서버 코드는 이를 읽지 못할 수 있음)
 
 ---
 
-## 🌍 4. 필수 환경 변수 Checklist (.env)
+## 3. Mock Data 구조 (AI Pipeline)
 
-통합된 파이프라인이 정상 작동하기 위해 다음 환경 변수가 필수적입니다.
+현재 백엔드(`backend/app/services/ai_a/allragpipeline/routers`)는 AI-A 팀의 모델이 준비되기 전까지, 프론트엔드 개발을 완벽히 지원하기 위해 **정교한 가상 파이프라인(Mock)**을 제공하고 있습니다.
 
-**26.02.02노션** 참고 바람
+### ✅ 가상 데이터 엔드포인트 (Mock Data Endpoints)
+AI-A 모델 개발이 완료될 때까지, 프론트엔드는 다음 API를 호출하면 **고정된 가상 데이터(Static Mock Data)**를 응답받습니다.
+1.  **지식 그래프 (`graph_api.py`)**: 복잡한 노드/링크 구조의 더미 데이터를 반환합니다.
+2.  **RAG 검색 (`rag_api.py`)**: "OmniHub는..."으로 시작하는 고정된 답변 텍스트를 반환합니다.
+3.  **문서 트리 (`tree_api.py`)**: AI 분석 결과로 가정된 임의의 트리 구조를 반환합니다.
+4.  **문서 상세 (`card_docs_api.py`)**: 특정 문서 ID에 대해 항상 동일한 요약 및 분석 정보를 반환합니다.
 
+---
+
+## 4. Admin Console (문제 해결 가이드)
+
+관리자 패널(`AdminUserManagement.tsx`) 사용 시 다음 사항을 주의해야 합니다.
+
+### 4.1. Sync Manager (동기화 관리)가 비어 보이는 이유
+- **Scope Restriction (Prototype)**: 현재 프로토타입 버전에서는 관리자 패널의 Sync Manager가 **"현재 로그인한 사용자(Admin)의 폴더"**만 조회하도록 제한되어 있습니다. (`files.py`의 `get_monitored_folders`가 `current_user`를 참조함)
+- **Future Goal**: 실제 운영 단계에서는 `admin.py`를 통해 **전체 사용자의 동기화 현황**을 모니터링하고 제어하는 기능으로 확장될 예정입니다.
+- **기능 제한**: 현재 "Stop Syncing(휴지통)" 버튼은 해당 폴더를 **구독 목록(Whitelist)에서 제거**하는 기능이며, **이미 실행 중인(Active Running) 백그라운드 작업을 즉시 강제 종료(Kill Process)하지는 않습니다.**
+
+### 4.2. Sync Queue Panel (동기화 대기열)
+- **Read-Only**: 이 패널은 백엔드의 진행 상황(`system_status` 컬렉션)을 시각화하여 보여주는 **뷰어(Viewer)**입니다. 여기서 동기화를 일시정지하거나 취소하는 조작 기능은 포함되어 있지 않습니다.
+- **Localhost 제약**: 로컬 개발 환경에서 BigQuery 접속 권한이 없는 Credential을 사용할 경우, `System Status` 탭에서 BigQuery 항목이 **Error**로 표시될 수 있습니다. 이는 서버 코드가 아닌 로컬 인증 환경의 차이입니다.
+
+---
+
+## 5. 파일 관계 및 연동 (File Relationships)
+
+### Frontend
+-   `OmniHubContext.tsx`: 전역 상태 관리 (AI Status, Polling, User Auth).
+-   `aiService.ts` -> **`dataService.ts`**: (변경됨) 이제 `aiService`가 아니라 `dataService`의 `BackendAPI`를 통해 백엔드와 통신합니다.
+-   `SyncQueuePanel.tsx`: 동기화 대기열 시각화 컴포넌트.
+
+### Backend
+-   `ingest.py`: 파일 수집 및 `sync_folder_task` (백그라운드 워커).
+-   `analysis_service.py`: `trigger_analysis` (AI 파이프라인 오케스트레이터).
+-   `log_service.py`: 사용자 행동 로그(`logs`) 및 시스템 에러(`sys_errors`) 적재.
+
+> **Note**: 추후 AI-A 모델이 완성되면, `mock_data.py`를 제거하고 실제 `PipelineRunner`의 결과를 DB에서 조회하도록 라우터만 수정하면 됩니다. 프론트엔드 수정은 최소화되어 있습니다.

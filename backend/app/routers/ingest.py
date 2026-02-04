@@ -59,15 +59,23 @@ async def ingest_drive_file(
     [Phase 2] 사용자의 구글 드라이브 파일을 GCS(Google Cloud Storage)로 스트리밍 전송합니다.
     [Refactoring] 공통 로직(process_and_catalog_file)을 사용하도록 변경됨.
     """
+    from app.utils.error_handler import raise_classified_http_exception
+
     if not current_user.google_access_token:
         raise HTTPException(status_code=400, detail="User is not connected to Google Drive")
         
     try:
         # Refactored Logic
-        # Note: process_and_catalog_file is sync, but running it in main thread is okay for one file 
-        # or we could use run_in_executor. For simplicity and since we are in async def, 
-        # it might block event loop if slow. But let's keep it simple for now as per previous logic.
-        result = process_and_catalog_file(current_user, request.file_id)
+        # [Performance Fix] Offload blocking IO (Download/Upload) to thread pool
+        # This prevents the event loop from being blocked by large file transfers.
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        # Run blocking function in thread pool
+        result = await loop.run_in_executor(
+            None, 
+            lambda: process_and_catalog_file(current_user, request.file_id)
+        )
         
         # [Phase 3] Trigger AI Analysis
         if result.get("status") != "skipped":
@@ -84,7 +92,7 @@ async def ingest_drive_file(
             "data": result
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_classified_http_exception(e, "Ingest Service")
 
 import asyncio
 
@@ -98,22 +106,24 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
         print(f"[Sync-Task] Starting background sync for {folder_id}")
         
         # 1. List Files (Sync execution in thread to avoid blocking)
-        all_files = await asyncio.to_thread(list_files_in_folder_recursive, user, folder_id)
+        loop = asyncio.get_running_loop()
+        all_files = await loop.run_in_executor(None, list_files_in_folder_recursive, user, folder_id)
         
-        processed_count = 0
-        skipped_count = 0 # Track skipped files
         processed_count = 0
         skipped_count = 0 # Track skipped files
         failed_list = []
-        recent_files = [] # Track recent file names for UI
-        
         # [System Status] Start Tracking
+        # Preview first 5 files as queue
+        initial_queue = [f['name'] for f in all_files[:5]]
+        
         db.collection("system_status").document(folder_id).set({
             "status": "running",
             "start_time": start_time,
             "total_files": len(all_files),
             "processed": 0,
-            "skipped": 0
+            "skipped": 0,
+            "queue_preview": initial_queue,
+            "recent_completed": []
         })
 
         print(f"[Sync-Task] Found {len(all_files)} files. Starting Batch Ingestion (Concurrency: 5)...")
@@ -123,14 +133,31 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
 
         async def process_wrapper(file_item):
             async with semaphore:
+                # [Graceful Cancellation] Check Flag
+                # Cost: 1 DB Read per file. Optimization: Cache flag?
+                # Optimization: Read flag only every N seconds?
+                # For safety, let's read distinct doc or checking a shared variable?
+                # Since this is async, we can have a shared `stop_signal` variable updated by a separate periodic task?
+                # BUT keeping it simple: Check DB. 
+                # Note: Reading DB 1000 times might be costly.
+                # Better: Check `db.collection(...).document(...)` snapshot?
+                # Let's assume low volume for prototype.
+                
                 try:
+                    # [Optimization] Check abort only if we are seemingly running
+                    status_doc = db.collection("system_status").document(folder_id).get()
+                    if status_doc.exists and status_doc.to_dict().get("request_abort"):
+                        return {"status": "cancelled", "file_item": file_item, "error": "User Cancelled"}
+
                     # Run sync blocking IO in thread pool
-                    result = await asyncio.to_thread(
-                        process_and_catalog_file, 
-                        user, 
-                        file_item['id'], 
-                        virtual_path=file_item.get('virtual_path'),
-                        drive_meta=file_item # Pass meta for Delta Check
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: process_and_catalog_file(
+                            user, 
+                            file_item['id'], 
+                            virtual_path=file_item.get('virtual_path'),
+                            drive_meta=file_item # Pass meta for Delta Check
+                        )
                     )
                     return {"status": "success", "file_item": file_item, "result": result}
                 except Exception as e:
@@ -140,37 +167,63 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
         tasks = [process_wrapper(item) for item in all_files]
         
         # 4. Monitor Progress
+        # We use a simple index 'idx' to approximate queue position, though execution is async.
         for i, future in enumerate(asyncio.as_completed(tasks)):
+            
+            # [Feature] Graceful Cancellation Check
+            # Check DB flag every time a file completes (or before starting new batch if structured differently)
+            # Since this loop yields as tasks complete, we can check here to stop *processing results* 
+            # or more importantly, if we were dispatching in chunks.
+            # But here 'tasks' are already all launched. `run_in_executor` doesn't support cancellation easily once started.
+            # Wait, `all_files` list created `process_wrapper` tasks *all at once*?
+            # NO, `tasks = [...]` launches them all immediately?
+            # Ah, `tasks = [process_wrapper(item) for item in all_files]` creates coroutines but doesn't run them until awaited?
+            # Actually, `run_in_executor` starts immediately.
+            # CRITICAL CORRECTION:
+            # If we launch 1000 tasks at once, we can't stop them easily.
+            # We must use a `for` loop with semaphore to launch them, OR check flag inside `process_wrapper`.
+            # Let's check flag inside `process_wrapper` since it's the worker.
+            
+            pass 
+            # We will implement check inside process_wrapper for better control, 
+            # but wait, `process_wrapper` is defined before. I need to modify `process_wrapper` logic instead or `tasks` creation.
+            # Re-reading code: `tasks = [process_wrapper(item) for item in all_files]`
+            # This launches ALL concurrent tasks limited by semaphore.
+            # If I want to stop *launching* new tasks, I should not create list comprehension.
+            # I should iterate and create task.
+            
+            # However, modifying the loop structure is risky for "replace tool".
+            # Alternative: Inside `process_wrapper`, check flag before `run_in_executor`.
+            
             res = await future
             processed_count += 1
+            
+            completion_entry = {}
             
             if res["status"] == "success":
                 f_item = res["file_item"]
                 ingest_result = res["result"]
                 
-                # Update recent files (Keep last 5)
-                recent_files.append(f_item['name'])
-                if len(recent_files) > 5:
-                    recent_files.pop(0)
-
-                # Check if skipped
+                status_label = "success"
                 if ingest_result.get("status") == "skipped":
+                    status_label = "skipped"
                     skipped_count += 1
                 else:
-                    # [Fix for User Request] Trigger AI Analysis for Synced File
-                    # Skipped files don't need re-analysis (unless we want to force re-run on metadata change?)
-                    # For now, only new/updated files trigger AI.
+                    # Trigger AI
                     if ingest_result.get("status") != "error":
                          file_id = f_item['id']
-                         # trigger_analysis is async, fire-and-forget to avoid blocking ingestion too much
-                         # But we want to be careful about flooding.
-                         # Since pipeline is heavy, putting it in background is correct.
                          asyncio.create_task(trigger_analysis(
                              file_id=file_id,
                              gcs_uri=ingest_result.get("gcs_uri"),
                              mime_type=ingest_result.get("mime_type")
                          ))
-                         print(f"[Sync-Task] Triggered AI Analysis for {file_id}")
+                         # print(f"[Sync-Task] Triggered AI Analysis for {file_id}")
+
+                completion_entry = {
+                    "name": f_item['name'],
+                    "status": status_label,
+                    "timestamp": datetime.now().isoformat()
+                }
 
             else:
                 f_item = res["file_item"]
@@ -180,13 +233,29 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
                     "name": f_item['name'],
                     "error": res['error']
                 })
+                completion_entry = {
+                    "name": f_item['name'],
+                    "status": "failed",
+                    "error": str(res['error']),
+                    "timestamp": datetime.now().isoformat()
+                }
             
-            # Periodic Update (Every 5 files)
-            if processed_count % 5 == 0:
+            # Update Recent History
+            recent_completed.insert(0, completion_entry) # Prepend
+            if len(recent_completed) > 5:
+                recent_completed.pop()
+
+            # Periodic Update (Every 5 files or last file)
+            if processed_count % 5 == 0 or processed_count == len(all_files):
+                # Calculate Queue Preview (Next 5 items from master list)
+                next_batch_idx = processed_count
+                queue_preview = [f['name'] for f in all_files[next_batch_idx : next_batch_idx + 5]]
+                
                 db.collection("system_status").document(folder_id).update({
                     "processed": processed_count,
                     "skipped": skipped_count,
-                    "recent_files": recent_files
+                    "recent_completed": recent_completed,
+                    "queue_preview": queue_preview
                 })
 
         # Summary Log
@@ -201,7 +270,8 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
             "processed": processed_count,
             "skipped": skipped_count,
             "failed": len(failed_list),
-            "recent_files": recent_files
+            "recent_completed": recent_completed,
+            "queue_preview": [] # Clear queue
         })
         
         # [Enrichment] Richer Context
@@ -234,12 +304,23 @@ async def sync_folder_task(user: UserSchema, folder_id: str):
 
     except Exception as e:
         print(f"[Sync-Task] Critical Error: {e}")
-        # Mark as failed in DB
+        # 1. Mark as failed in DB
         db.collection("system_status").document(folder_id).set({
              "status": "failed",
              "error": str(e),
              "end_time": datetime.now()
         }, merge=True)
+        
+        # 2. Log to System Kernel Panic (Dashboard)
+        import traceback
+        from app.services.log_service import log_system_error
+        log_system_error(
+            error_code="SYNC_TASK_CRASH",
+            message=f"Folder Sync Crashed for {folder_id}: {str(e)}",
+            path="ingest.sync_folder_task",
+            user_id=user.user_id,
+            stack_trace=traceback.format_exc()
+        )
 
 @router.post("/sync-folder")
 def sync_drive_folder(
@@ -277,30 +358,45 @@ def sync_drive_folder(
 
 @router.delete("/sync-folder")
 def unsync_drive_folder(
-    request: SyncFolderRequest,
+    request: SyncFolderRequest = None, # Make optional to support query params vs body
+    folder_id: str = None, # Query Param support
+    abort: bool = False,
     current_user: UserSchema = Depends(get_current_user)
 ):
     """
     [Privacy Guard] 지정된 폴더를 Whitelist(동기화 대상)에서 제외합니다.
+    [Feature] abort=True일 경우, 진행 중인 동기화 작업에 중단 신호를 보냅니다.
     """
+    # Normalize ID (Support JSON body or Query Param)
+    target_id = folder_id if folder_id else (request.folder_id if request else None)
+    if not target_id:
+        raise HTTPException(status_code=400, detail="Missing folder_id")
     try:
         user_ref = db.collection('users').document(current_user.email)
         
         # ArrayRemove: 배열에서 해당 요소만 안전하게 제거
         user_ref.update({
-            "monitored_folder_ids": firestore.ArrayRemove([request.folder_id])
+            "monitored_folder_ids": firestore.ArrayRemove([target_id])
         })
         
+        # [Feature] Send Cancellation Signal
+        if abort:
+             db.collection("system_status").document(target_id).set({
+                 "request_abort": True,
+                 "status": "cancelling" # UI Feedback
+             }, merge=True)
+             print(f"[Sync-Control] Abort signal sent for {target_id}")
+
         # Log Action
         log_user_action(
             user=current_user,
             action=ActionType.DELETE, # 설정 삭제로 간주
-            file_id=request.folder_id,
+            file_id=target_id,
             success=True,
-            details={"activity": "remove_whitelist_folder"}
+            details={"activity": "remove_whitelist_folder", "abort_requested": abort}
         )
         
-        print(f"[Privacy] Un-whitelisted folder {request.folder_id} for {current_user.email}")
+        print(f"[Privacy] Un-whitelisted folder {target_id} for {current_user.email}")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to unsync folder: {str(e)}")

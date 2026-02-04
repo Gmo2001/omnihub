@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends
+from app.dependencies import get_current_user
 from app.utils.id_utils import to_internal_id
 from authlib.integrations.starlette_client import OAuth
 from app.core.config import settings
@@ -14,6 +15,7 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from google_auth_oauthlib.flow import Flow
 from pydantic import BaseModel
+from typing import Tuple
 
 import os
 # Google Scope 변경(확장)으로 인한 에러 방지 (email -> https://.../userinfo.email)
@@ -34,7 +36,7 @@ oauth.register(
 )
 
 # --- Helper: User Sync Logic (Common) ---
-def sync_google_user_to_db(email: str, name: str, picture: str, access_token: str, refresh_token: str = None) -> tuple[str, UserSchema]:
+def sync_google_user_to_db(email: str, name: str, picture: str, access_token: str, refresh_token: str = None) -> Tuple[str, UserSchema]:
     """
     어떤 경로로 들어왔든, 구글 정보를 받아서
     Firestore 'users' 컬렉션에 저장(Upsert)하는 공통 함수입니다.
@@ -170,6 +172,18 @@ async def auth_callback(request: Request, background_tasks: BackgroundTasks):
     }
 
 
+# =================================================================
+# 2.5 User Profile Endpoint
+# =================================================================
+@router.get("/users/me", response_model=UserSchema)
+async def get_current_user_profile(user: UserSchema = Depends(get_current_user)):
+    """
+    현재 로그인한 사용자의 전체 프로필 정보를 반환합니다 (권한, 부서 등 포함).
+    프론트엔드에서 '내 정보'를 표시할 때 사용합니다.
+    """
+    return user
+
+
 class GoogleAuthCode(BaseModel):
     code: str
 
@@ -190,6 +204,9 @@ async def exchange_auth_code(data: GoogleAuthCode, background_tasks: BackgroundT
             }
         }
         
+        print(f"[DEBUG] Client ID loaded: {settings.GOOGLE_CLIENT_ID[:5]}...{settings.GOOGLE_CLIENT_ID[-5:]}")
+        print(f"[DEBUG] Client Secret loaded: {settings.GOOGLE_CLIENT_SECRET[:3]}... (len={len(settings.GOOGLE_CLIENT_SECRET)})")
+        
         flow = Flow.from_client_config(
             client_config,
             scopes=['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.readonly']
@@ -197,6 +214,7 @@ async def exchange_auth_code(data: GoogleAuthCode, background_tasks: BackgroundT
         
         # 'postmessage' is required for the React "Implicit" -> "Code" flow via popup
         flow.redirect_uri = 'postmessage'
+        print(f"[DEBUG] Using Redirect URI: {flow.redirect_uri}")
         
         # 2. Exchange Code
         flow.fetch_token(code=data.code)
@@ -222,8 +240,11 @@ async def exchange_auth_code(data: GoogleAuthCode, background_tasks: BackgroundT
     except Exception as e:
         import traceback
         print(f"CRITICAL AUTH FAILURE: {str(e)}")
+        if hasattr(e, 'content'):
+            print(f"[DEBUG] Error Content: {e.content}")
         print(traceback.format_exc())
-        raise HTTPException(status_code=400, detail=f"Code Exchange Failed: {str(e)}")
+        from app.utils.error_handler import raise_classified_http_exception
+        raise_classified_http_exception(e, "Google Auth Exchange", "system")
 
     if not email:
         raise HTTPException(status_code=400, detail="Could not retrieve email")

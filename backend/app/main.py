@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from app.routers import files, drive_webhook, auth, admin, ingest
+from app.services.ai_a.allragpipeline.routers import rag_api, graph_api, tree_api, card_docs_api
+from app.services.ai_a.allragpipeline.routers.auth_context import AuthContextMiddleware
 from fastapi.responses import PlainTextResponse # 텍스트 응답용
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,13 +23,22 @@ app.add_middleware(
 # 2. Authlib을 위한 세션 미들웨어 추가
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
+# 3. AI-A Auth Context Middleware (Bearer Token -> AuthContext 통역기)
+app.add_middleware(AuthContextMiddleware)
+
 
 # 라우터 등록
 app.include_router(auth.router)           # 인증 라우터 등록
 app.include_router(drive_webhook.router)
 app.include_router(admin.router)            # Admin APIS
 app.include_router(ingest.router)           # Drive Ingestion
-# app.include_router(graph.router)          # 나중에 구현
+app.include_router(ingest.router)           # Drive Ingestion
+# --- AI-A Routers ---
+app.include_router(rag_api.router)
+app.include_router(graph_api.router)
+app.include_router(tree_api.router)
+app.include_router(card_docs_api.router)
+# --------------------
 app.include_router(files.router)            # 지금 테스트용
 
 

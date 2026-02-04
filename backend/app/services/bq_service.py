@@ -115,3 +115,5 @@ def stream_files_to_bigquery(file_data: dict, file_id: str):
             
     except Exception as e:
         print(f"❌ [BigQuery System Error] {e}")
+
+

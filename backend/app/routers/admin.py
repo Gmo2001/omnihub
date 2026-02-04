@@ -25,6 +25,7 @@ def get_current_admin_user(current_user: UserSchema = Depends(get_current_user))
 
 class UserUpdate(BaseModel):
     department: Optional[str] = None
+    department_id: Optional[str] = None # Enum Validation will happen at Service/UI level or implicit Pydantic if typed
     position: Optional[str] = None
     role: Optional[str] = None
 
@@ -61,57 +62,92 @@ async def update_user(
     updated_doc = user_ref.get()
     return UserSchema(**updated_doc.to_dict())
 
-@router.get("/test-bigquery")
-async def test_bigquery_connection(
+@router.get("/system-health")
+async def check_system_health(
     current_user: UserSchema = Depends(get_current_admin_user)
 ):
     """
-    [Diagnostic] Force-test BigQuery connection and return result.
+    [Diagnostic] Check Firestore and BigQuery connection status.
+    Returns specific error codes and messages for UI handling.
     """
-    report = {"status": "starting", "details": []}
+    from app.utils.error_handler import classify_error
     
+    report = {
+        "firestore": {"status": "unknown", "latency_ms": 0},
+        "bigquery": {"status": "unknown", "latency_ms": 0},
+        "details": []
+    }
+    
+    # 1. Check Firestore
     try:
-        client = get_bq_client()
-        report["details"].append(f"Client Init: Success (Project: {client.project})")
+        start_fs = datetime.now()
+        # Perform a lightweight read
+        db.collection("system_status").document("health_check").get()
+        latency_fs = (datetime.now() - start_fs).total_seconds() * 1000
         
-        # 1. Check Dataset
-        dataset_ref = client.dataset(DATASET_ID)
-        try:
-            client.get_dataset(dataset_ref)
-            report["details"].append(f"Dataset '{DATASET_ID}': Found ✅")
-        except Exception as e:
-            report["status"] = "failed"
-            report["details"].append(f"Dataset '{DATASET_ID}': Not Found/Error ❌ ({str(e)})")
-            return report
-            
-        # 2. Check Table
-        table_ref = dataset_ref.table(LOGS_TABLE)
-        try:
-            client.get_table(table_ref)
-            report["details"].append(f"Table '{LOGS_TABLE}': Found ✅")
-        except Exception as e:
-            report["details"].append(f"Table '{LOGS_TABLE}': Not Found ⚠️ ({str(e)})")
-            # Proceed to try insert anyway, maybe logic handles creation? 
-            # Actually our logic handles creation, but let's see.
-        
-        # 3. Dry Run Insert
-        row = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "document_id": f"TEST_LOG_{uuid.uuid4()}", 
-            "operation": "TEST_INSERT",
-            "data": "{\"message\": \"This is a diagnostic test log\"}" 
+        report["firestore"] = {
+            "status": "ok", 
+            "latency_ms": round(latency_fs, 2)
         }
-        
-        errors = client.insert_rows_json(table_ref, [row])
-        if errors:
-            report["status"] = "failed"
-            report["details"].append(f"Insert Test: Failed ❌ {errors}")
-        else:
-            report["status"] = "success"
-            report["details"].append("Insert Test: Success 🎉")
-            
+        report["details"].append(f"Firestore: Connected (Latency: {round(latency_fs, 2)}ms)")
     except Exception as e:
-        report["status"] = "error"
-        report["details"].append(f"Unexpected Error: {str(e)}")
+         err_info = classify_error(e, "Firestore")
+         report["firestore"] = err_info
+         report["details"].append(f"Firestore: {err_info['message']}")
+
+    # 2. Check BigQuery
+    try:
+        start_bq = datetime.now()
+        client = get_bq_client()
+        # Lightweight check: get dataset metadata
+        dataset_ref = client.dataset(DATASET_ID)
+        client.get_dataset(dataset_ref)
+        latency_bq = (datetime.now() - start_bq).total_seconds() * 1000
+        
+        report["bigquery"] = {
+            "status": "ok", 
+            "latency_ms": round(latency_bq, 2)
+        }
+        report["details"].append(f"BigQuery: Connected (Latency: {round(latency_bq, 2)}ms)")
+    except Exception as e:
+        err_info = classify_error(e, "BigQuery")
+        report["bigquery"] = err_info
+        report["details"].append(f"BigQuery: {err_info['message']}")
         
     return report
+
+@router.get("/system-errors")
+async def get_system_errors(
+    limit: int = 50,
+    current_user: UserSchema = Depends(get_current_admin_user)
+):
+    """
+    [Log Viewer] Retrieve system error logs from Firestore (Today Only).
+    Used for AI-B dashboard or Admin Console analysis.
+    """
+    try:
+        # Query: sys_errors/{today}/logs collection, sort by timestamp desc
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        
+        errors_ref = db.collection("sys_errors").document(today_str).collection("logs").order_by(
+            "timestamp", direction=firestore.Query.DESCENDING
+        ).limit(limit)
+        
+        docs = errors_ref.stream()
+        error_logs = []
+        
+        for doc in docs:
+            data = doc.to_dict()
+            # Convert timestamp to ISO format for JSON
+            if data.get("timestamp"):
+                data["timestamp"] = data["timestamp"].isoformat()
+            data["id"] = doc.id
+            error_logs.append(data)
+            
+        return error_logs
+        
+    except Exception as e:
+        # If index is missing for sorting, fallback to simple get
+        print(f"[Admin] Error fetching system errors: {e}")
+        from app.utils.error_handler import raise_classified_http_exception
+        raise_classified_http_exception(e, "Admin Log Viewer", "admin")

@@ -1,5 +1,5 @@
 
-import { ConceptNode, DocRecord, Role, SecurityLevel } from '../types';
+import { ConceptNode, DocRecord, Role, SecurityLevel, DriveFile } from '../types';
 
 // --- Constants for Random Generation ---
 const CONCEPT_LABELS = [
@@ -302,41 +302,103 @@ export const getTopTags = (docs: DocRecord[]): string[] => {
 
 // --- REAL BACKEND API INTEGRATION ---
 
-export interface DriveFile {
-    id: string;
-    name: string;
-    mimeType: string;
-    iconLink?: string;
-    thumbnailLink?: string;
-}
+// DriveFile is imported from ../types
+
+// [CONFIG] API Base URL
+// Local Development: 'http://localhost:8000' or dynamic for network sharing
+// Production (Cloud Run): 'https://omnihub-backend-707724932002.asia-northeast3.run.app'
+// If accessing via 172.24..., we must call backend at 172.24... too to avoid CORS/Mixed issues sometimes.
+const getBaseUrl = () => {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:8000';
+    }
+    // If accessing via network IP (e.g. 172.24.125.242)
+    return `http://${window.location.hostname}:8000`;
+};
+const API_BASE_URL = getBaseUrl();
+// const API_BASE_URL = 'https://omnihub-backend-707724932002.asia-northeast3.run.app';
+
+// --- Helper: Interceptor Fetch ---
+const apiFetch = async (url: string, options: RequestInit = {}) => {
+    try {
+        const res = await fetch(url, options);
+
+        if (!res.ok) {
+            let errorData: any = {};
+            try {
+                errorData = await res.json();
+            } catch (e) {
+                errorData = { message: res.statusText };
+            }
+
+            // [Auto-Toast Logic]
+            if (errorData.action === 'contact_admin') {
+                window.dispatchEvent(new CustomEvent('omnihub-toast', {
+                    detail: {
+                        type: 'error',
+                        title: 'Server Configuration Error',
+                        message: errorData.message || "Critical system error occurred.",
+                        action: 'contact_admin'
+                    }
+                }));
+            } else if (errorData.action === 'retry') {
+                window.dispatchEvent(new CustomEvent('omnihub-toast', {
+                    detail: {
+                        type: 'warning',
+                        title: 'Service Busy',
+                        message: errorData.message || "Service is temporarily unavailable.",
+                        action: 'retry'
+                    }
+                }));
+            }
+
+            // Re-throw for local handling if needed
+            throw new Error(errorData.detail?.message || errorData.detail || "API Error");
+        }
+        return await res.json();
+    } catch (e: any) {
+        // Network errors (fetch failed entirely)
+        if (e.message === "Failed to fetch") {
+            window.dispatchEvent(new CustomEvent('omnihub-toast', {
+                detail: {
+                    type: 'error',
+                    title: 'Network Error',
+                    message: "Cannot connect to server. Check your internet connection.",
+                }
+            }));
+        }
+        throw e;
+    }
+};
 
 export const BackendAPI = {
     // 1. Google Login (Exchange Code for Tokens)
     exchangeToken: async (googleCode: string): Promise<{ access_token: string }> => {
-        const res = await fetch('https://omnihub-backend-707724932002.asia-northeast3.run.app/auth/google', {
+        return apiFetch(`${API_BASE_URL}/auth/google`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code: googleCode })
         });
-        if (!res.ok) throw new Error("Login Failed");
-        return await res.json();
     },
 
-    // 2. Drive Proxy (List Files)
-    getDriveProxy: async (folderId: string = "root", token: string | null): Promise<DriveFile[]> => {
+    // 2. Drive Proxy (List Files or Search)
+    getDriveProxy: async (folderId: string = "root", token: string | null, query?: string): Promise<DriveFile[]> => {
         if (!token) return [];
-        const res = await fetch(`https://omnihub-backend-707724932002.asia-northeast3.run.app/files/drive/proxy?folder_id=${folderId}`, {
+        let url = `${API_BASE_URL}/files/drive/proxy?folder_id=${folderId}`;
+        if (query) {
+            url += `&q=${encodeURIComponent(query)}`;
+        }
+
+        const data = await apiFetch(url, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (!res.ok) return []; // Fallback empty
-        const data = await res.json();
         return data.files || [];
     },
 
     // 3. Sync Folder Action
     syncFolder: async (folderId: string, token: string | null) => {
         if (!token) throw new Error("No Token");
-        const res = await fetch('https://omnihub-backend-707724932002.asia-northeast3.run.app/drive/sync-folder', {
+        await apiFetch(`${API_BASE_URL}/drive/sync-folder`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -344,19 +406,94 @@ export const BackendAPI = {
             },
             body: JSON.stringify({ folder_id: folderId })
         });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || "Sync Failed");
-        }
+    },
+
+    // 3.1 Ingest Single File
+    ingestFile: async (fileId: string, token: string | null) => {
+        if (!token) throw new Error("No Token");
+        return apiFetch(`${API_BASE_URL}/drive/ingest`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ file_id: fileId })
+        });
+    },
+
+    // 3.5 Unsync Folder (Stop Sync)
+    unsyncFolder: async (folderId: string, token: string | null, abort: boolean = false) => {
+        if (!token) throw new Error("No Token");
+        await apiFetch(`${API_BASE_URL}/drive/sync-folder?folder_id=${folderId}&abort=${abort}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            // Body is optional for DELETE but some proxies strip it. 
+            // We moved folder_id to query param for safety, but keeping body for backward compatibility if needed.
+            body: JSON.stringify({ folder_id: folderId })
+        });
+    },
+
+    getMonitoredFolders: async (token: string | null) => {
+        if (!token) return [];
+        return apiFetch(`${API_BASE_URL}/files/drive/monitored-folders`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
     },
 
     // 4. Check Sync Status (Polling)
     getSyncStatus: async (folderId: string, token: string | null) => {
         if (!token) return { status: 'idle' };
-        const res = await fetch(`https://omnihub-backend-707724932002.asia-northeast3.run.app/drive/status/${folderId}`, {
+        try {
+            return await apiFetch(`${API_BASE_URL}/drive/status/${folderId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+        } catch {
+            return { status: 'error' };
+        }
+    },
+
+    // 5. User Management (Profile & Admin)
+    fetchCurrentUser: async (token: string | null) => {
+        if (!token) throw new Error("No Token");
+        return apiFetch(`${API_BASE_URL}/users/me`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (!res.ok) return { status: 'error' };
-        return await res.json();
-    }
+    },
+
+    getUsers: async (token: string | null) => {
+        if (!token) throw new Error("No Token");
+        return apiFetch(`${API_BASE_URL}/admin/users?limit=100`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+    },
+
+    updateUser: async (email: string, updates: any, token: string | null) => {
+        if (!token) throw new Error("No Token");
+        return apiFetch(`${API_BASE_URL}/admin/users/${email}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(updates)
+        });
+    },
+
+    // 6. System Health & Logs
+    getSystemHealth: async (token: string | null) => {
+        if (!token) throw new Error("No Token");
+        return apiFetch(`${API_BASE_URL}/admin/system-health`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+    },
+
+    getSystemErrors: async (token: string | null, limit: number = 50) => {
+        if (!token) return [];
+        return apiFetch(`${API_BASE_URL}/admin/system-errors?limit=${limit}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+    },
 };

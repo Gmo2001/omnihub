@@ -64,9 +64,22 @@ async def trigger_analysis(file_id: str, gcs_uri: str, mime_type: str):
 
     except Exception as e:
         logger.error(f"❌ [Pipeline Trigger] Failed for {file_id}: {e}")
+        
+        # 1. Update File Status
         db.collection('files').document(file_id).update({
             "aiStatus": "failed",
             "errorMsg": str(e)
         })
+        
+        # 2. Log to System Errors (Dashboard)
+        import traceback
+        from app.services.log_service import log_system_error
+        
+        log_system_error(
+            error_code="AI_PIPELINE_FAIL",
+            message=f"AI Analysis Failed for {file_id}: {str(e)}",
+            path="analysis_service.trigger_analysis",
+            stack_trace=traceback.format_exc()
+        )
 
  

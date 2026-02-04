@@ -10,6 +10,16 @@ class CamelModel(BaseModel):
         alias_generator = to_camel
         populate_by_name = True
 
+from enum import Enum
+
+class Department(str, Enum):
+    DEPT_MGT = "DEPT_MGT"         # 경영지원본부
+    DEPT_CORP_TAX = "DEPT_CORP_TAX" # 법인세무본부
+    DEPT_PROP_TAX = "DEPT_PROP_TAX" # 재산세무본부
+    DEPT_AUDIT = "DEPT_AUDIT"       # 회계감사본부
+    DEPT_CONSULT = "DEPT_CONSULT"   # 컨설팅본부
+    UNKNOWN = "UNKNOWN"             # 미지정
+
 #추후 로그인 기능과 함께 사용할 모델
 class UserSchema(CamelModel):
     # ==========================================
@@ -39,8 +49,8 @@ class UserSchema(CamelModel):
     # [Organization Info] 담당자: HR/Admin 🏢
     # - 회사 내 조직 정보 및 권한입니다.
     # ==========================================
-    department: Optional[str] = None # 부서명 (예: "개발팀")
-    department_id: Optional[str] = None # 부서 코드 (예: "DEPT_DEV") - AI-B 학습용
+    department: Optional[str] = None # 부서명 (Display Name, 예: "경영지원본부")
+    department_id: Department = Field(default=Department.UNKNOWN) # [RBAC] 부서 코드
 
     position: Optional[str] = None   # 직책 (예: "팀장", "매니저")
     role: str = Field(default="user") # user, admin, manager

@@ -29,7 +29,9 @@ def process_and_catalog_file(
     # 0. Fetch Metadata (if not provided)
     if not drive_meta:
         try:
-            ds = get_drive_service()
+            # [Fix] Use User Credentials instead of Service Account
+            from app.services.drive_service import get_user_drive_service
+            ds = get_user_drive_service(user)
             drive_meta = ds.files().get(
                 fileId=file_id.replace("fil_", ""), 
                 fields="id, name, modifiedTime, createdTime, mimeType, owners, lastModifyingUser, webViewLink, iconLink, trashed, size"

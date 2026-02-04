@@ -11,27 +11,35 @@ from typing import Optional
 router = APIRouter()
 
 # 1. Real Drive Proxy API
-# 1. Real Drive Proxy API
 @router.get("/files/drive/proxy")
 async def get_drive_files_proxy(
     folder_id: str = Query("root"),
+    q: Optional[str] = Query(None),
     current_user: UserSchema = Depends(get_current_user)
 ):
     """
     실제 구글 드라이브의 파일 목록을 실시간으로 중계합니다. (탐색기용)
-    이제 서비스 계정이 아닌, 현재 로그인한 사용자의 토큰을 사용하여 드라이브에 접근합니다.
+    q 파라미터가 있으면 '검색' 모드로 동작하고, 없으면 '폴더 조회' 모드로 동작합니다.
     """
+    from app.utils.error_handler import raise_classified_http_exception
+    
     try:
         # [Security Fix] Use User Credentials instead of Service Account
         from app.services.drive_service import get_user_drive_service
         service = get_user_drive_service(current_user)
         
-        # folder_id 안의 파일들만 조회 (trashed 된거 제외)
-        # "root" alias works for User Drive as well ("My Drive")
-        query = f"'{folder_id}' in parents and trashed = false"
+        # Query Construction
+        if q:
+            # Search Mode: Name contains 'q'
+            # Note: Google Drive API 'contains' is case-insensitive for 'name'
+            query = f"name contains '{q}' and trashed = false"
+        else:
+            # Browse Mode: List children of folder
+            # "root" alias works for User Drive as well ("My Drive")
+            query = f"'{folder_id}' in parents and trashed = false"
         
         # 필요한 필드만 콕 집어서 가져옴 (속도 최적화)
-        fields = "files(id, name, mimeType, iconLink, webViewLink, hasThumbnail, thumbnailLink)"
+        fields = "files(id, name, mimeType, iconLink, webViewLink, hasThumbnail, thumbnailLink, parents)"
         
         results = service.files().list(
             q=query,
@@ -45,8 +53,51 @@ async def get_drive_files_proxy(
         return {"files": results.get('files', [])}
         
     except Exception as e:
-        print(f"[Drive-Proxy] Error fetching files for {current_user.email}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # [Log Plan] Print removed. specialized logger inside handler will capture it.
+        raise_classified_http_exception(e, "Drive Proxy", user_id=current_user.email)
+
+@router.get("/files/drive/monitored-folders")
+async def get_monitored_folders(
+    current_user: UserSchema = Depends(get_current_user)
+):
+    """
+    [Sync Manager] Get details of all folders currently being monitored (whitelisted).
+    """
+    if not current_user.monitored_folder_ids:
+        return []
+        
+    # Lazy import to avoid circular dependency if any
+    from app.core.gcp_clients import get_drive_service
+    
+    service = get_drive_service(current_user)
+    monitored_list = []
+    
+    for folder_id in current_user.monitored_folder_ids:
+        try:
+            # Fetch folder metadata
+            folder_meta = service.files().get(
+                fileId=folder_id,
+                fields="id, name, webViewLink, iconLink, trashing, trashed"
+            ).execute()
+            
+            monitored_list.append({
+                "id": folder_id,
+                "name": folder_meta.get('name', 'Unknown Folder'),
+                "link": folder_meta.get('webViewLink'),
+                "status": "active" if not folder_meta.get('trashed') else "trashed",
+                "last_synced": "2026-02-03T00:00:00Z" # Placeholder
+            })
+            
+        except Exception as e:
+            # Folder might be deleted or permission lost
+            monitored_list.append({
+                "id": folder_id,
+                "name": "Inaccessible Folder",
+                "status": "error",
+                "error": str(e)
+            })
+            
+    return monitored_list
 
 # 2. Virtual Tree API
 @router.get("/files/virtual-tree")
