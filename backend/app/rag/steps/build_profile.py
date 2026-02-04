@@ -148,7 +148,11 @@ class ProfileBuilder:
 
         # 5. 저장 (Profiles)
         self.db.collection("profiles").document(doc_id).set(profile, merge=True)
-        logger.info(f"✅ [Profile] 생성 완료: {doc_id}")
+        
+        # 6. [Safety] Documents 컬렉션에도 Title 백업 (검색 엔진 Fallback용)
+        self.db.collection("documents").document(doc_id).set({"title": title}, merge=True)
+        
+        logger.info(f"✅ [Profile] 생성 및 백업 완료: {doc_id}")
         
         # [Extension Point] 다음 단계 호출 가능
         # if flags['policy']:

@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from google.cloud import firestore
 from app.common.types import AuthContext
 from app.core.gcp_clients import db
@@ -47,18 +47,58 @@ class FirestoreRepo:
             .where("tenant_id", "==", self.tenant_id)
             .where("engagement_id", "==", self.engagement_id))
 
+    def _get_with_fallback(self, collection: str, doc_id: str) -> Tuple[Any, Optional[str]]:
+        """
+        RAG 검색 결과(DriveID)와 Firestore Key(접두어 등) 불일치 해결을 위한 범용 조회 헬퍼
+        """
+        ref = self.db.collection(collection).document(doc_id).get()
+        if ref.exists:
+            return ref, doc_id
+        
+        # 'fil_' 접두어 시도 (Documents, etc.)
+        if not doc_id.startswith("fil_"):
+            prefixed = f"fil_{doc_id}"
+            ref_pre = self.db.collection(collection).document(prefixed).get()
+            if ref_pre.exists:
+                return ref_pre, prefixed
+                
+        return None, None
+
     # --- 1. Documents ---
     def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        
+        # 1. Try original doc_id
         doc_ref = self.db.collection("documents").document(doc_id).get()
+        
+        # 2. [Fallback] If not found and no prefix, try with 'fil_' prefix
+        if not doc_ref.exists and not doc_id.startswith("fil_"):
+            prefixed_id = f"fil_{doc_id}"
+            doc_ref_pre = self.db.collection("documents").document(prefixed_id).get()
+            if doc_ref_pre.exists:
+                doc_ref = doc_ref_pre
+                doc_id = prefixed_id
+        
         if not doc_ref.exists:
             return None
         
         data = doc_ref.to_dict()
+        data["doc_id"] = doc_id # Ensure resolved ID
         if not self._scope_check(data):
-            logger.warning(f"Scope Mismatch Access Attempt: {doc_id} by {self.user_id}")
-            # Raise Forbidden? Or just return None
+            # logger.warning(f"Scope Mismatch Access Attempt: {doc_id} by {self.user_id}")
             return None
-            
+        
+        # [Fix] Merge with Profile data (for Title, Summary, etc.)
+        try:
+            profile_snap = self.db.collection("profiles").document(doc_id).get()
+            if profile_snap.exists:
+                profile_data = profile_snap.to_dict()
+                if profile_data.get("title"):
+                    data["title"] = profile_data["title"]
+                if profile_data.get("summary"):
+                    data["summary"] = profile_data["summary"]
+        except Exception as e:
+            logger.warning(f"Profile fetch failed for {doc_id}: {e}")
+        
         return data
 
     def list_documents(self, 
@@ -124,21 +164,20 @@ class FirestoreRepo:
         # e.g., @firestore.transactional def update_in_txn(txn, ...): ...
         
         # 운영 최소: Atomic Merge Update
-        self.db.collection("documents").document(doc_id).set(payload, merge=True)
+        resolved_id = origin.get("doc_id", doc_id)
+        self.db.collection("documents").document(resolved_id).set(payload, merge=True)
         
-        logger.info(f"Doc {doc_id} status updated to {new_status} by {self.user_id}")
+        logger.info(f"Doc {resolved_id} status updated to {new_status} by {self.user_id}")
 
     # --- 2. Cards ---
     def get_card(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        # Card 역시 Scope Check가 필요하나, cards 컬렉션에도 tenant_id를 넣었으므로 가능
-        # 만약 안넣었다면 profile/document를 통해 간접 확인해야 함.
-        # B단계 스크립트에서 card에도 tenant_id 넣었음.
-        
-        card_ref = self.db.collection("cards").document(doc_id).get()
-        if not card_ref.exists:
+        snap, resolved_id = self._get_with_fallback("cards", doc_id)
+        if not snap:
             return None
             
-        data = card_ref.to_dict()
+        data = snap.to_dict()
+        data["doc_id"] = resolved_id
+        
         if not self._scope_check(data):
             return None
         return data
@@ -163,9 +202,12 @@ class FirestoreRepo:
         return {"concepts": concepts, "docs": docs}
 
     def get_doc_neighbors(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        ref = self.db.collection("graph_serving_docs").document(doc_id).get()
-        if not ref.exists: return None
-        data = ref.to_dict()
+        snap, resolved_id = self._get_with_fallback("graph_serving_docs", doc_id)
+        if not snap: return None
+        
+        data = snap.to_dict()
+        data["doc_id"] = resolved_id
+        
         if not self._scope_check(data): return None
         return data
 

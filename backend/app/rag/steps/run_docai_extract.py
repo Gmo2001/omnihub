@@ -13,8 +13,6 @@ from google.cloud import firestore
 from app.core.config import settings
 from app.core.gcp_clients import get_firestore_client
 
-from google.oauth2 import service_account
-
 # 로거 설정
 logger = logging.getLogger("DocAIService")
 logger.setLevel(logging.INFO)
@@ -29,22 +27,16 @@ class DocAIExtractor:
         self.location = settings.DOC_AI_LOCATION
         self.bucket_name = getattr(settings, "GCS_BUCKET", f"{self.project_id}-docai-output")
         
-        # GCS 클라이언트 (서비스 계정 키 사용)
-        self.storage_client = storage.Client.from_service_account_json(
-            settings.GOOGLE_APPLICATION_CREDENTIALS,
-            project=self.project_id
-        )
+        # GCS 클라이언트 - ADC 사용 (Cloud Run 호환)
+        # 로컬에서는 GOOGLE_APPLICATION_CREDENTIALS 환경변수가 자동으로 사용됨
+        self.storage_client = storage.Client(project=self.project_id)
         self.bucket = self.storage_client.bucket(self.bucket_name)
         
-        # Document AI Client
-        # [Fix] Explicitly load credentials to ensure correct scopes
-        creds = service_account.Credentials.from_service_account_file(
-            settings.GOOGLE_APPLICATION_CREDENTIALS
-        )
+        # Document AI Client - ADC 사용
+        # Cloud Run에서는 서비스 계정 권한이 자동 부여됨
         opts = ClientOptions(api_endpoint=f"{self.location}-documentai.googleapis.com")
         self.docai_client = documentai.DocumentProcessorServiceClient(
-            client_options=opts,
-            credentials=creds
+            client_options=opts
         )
 
     def get_processor_name(self, mime_type: str) -> Optional[str]:

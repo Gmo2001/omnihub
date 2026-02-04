@@ -108,34 +108,55 @@ class EntityExtractor:
         text_chunks = [c for c in chunks if c.get("type", "text") == "text"]
         target_chunks = text_chunks[:5]
         
-        combined_text = "\n\n".join([c.get("text", "") for c in target_chunks])
-        if not combined_text: return
+        if not target_chunks: return
         
-        # Extract
-        extracted = self.extract(combined_text)
+        # [Parallel Extraction]
+        # 병렬 처리로 속도 개선 (기존: 텍스트 병합 후 1회 호출 -> 변경: 5개 청크 동시 호출)
+        import concurrent.futures
         
-        # Post Process
         final_entities = []
         all_relations = []
         source_link = profile.get("source_link")
         
-        # Representative Chunk for evidence
-        rep_chunk = target_chunks[0]
-        
-        for ent in extracted.get("entities", []):
-            ent["evidence"] = [{
-                "doc_id": doc_id,
-                "chunk_id": rep_chunk.get("chunk_id"),
-                "page": rep_chunk.get("page_start_no"),
-                "source_link": source_link,
-                "snippet": "Extracted from summary context",
-                "span": None
-            }]
-            final_entities.append(ent)
+        def _process_chunk(chunk):
+            """Thread Worker Function"""
+            text = chunk.get("text", "")
+            if not text: return None
+            # Chunk 단위 추출
+            return self.extract(text)
+
+        # ThreadPoolExecutor를 사용해 병렬 LLM 호출 (IO Bound)
+        # max_workers=5: 적절한 동시성을 유지하며 Rate Limit 방지
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            # Future와 Chunk 매핑
+            future_to_chunk = {executor.submit(_process_chunk, c): c for c in target_chunks}
             
-        for rel in extracted.get("relations", []):
-            rel["evidence_chunk_id"] = rep_chunk.get("chunk_id")
-            all_relations.append(rel)
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                chunk_data = future_to_chunk[future]
+                try:
+                    extracted = future.result()
+                    if not extracted: continue
+                    
+                    # 결과 병합 및 증거(Evidence) 매핑
+                    for ent in extracted.get("entities", []):
+                        ent["evidence"] = [{
+                            "doc_id": doc_id,
+                            "chunk_id": chunk_data.get("chunk_id"),
+                            "page": chunk_data.get("page_start_no"),
+                            "source_link": source_link,
+                            "snippet": "Extracted from chunk context",
+                            "span": None
+                        }]
+                        final_entities.append(ent)
+                        
+                    for rel in extracted.get("relations", []):
+                        rel["evidence_chunk_id"] = chunk_data.get("chunk_id")
+                        all_relations.append(rel)
+                        
+                except Exception as e:
+                    logger.error(f"Chunk processing failed (chunk_id={chunk_data.get('chunk_id')}): {e}")
+
+        logger.info(f"⚡ [Entity] 병렬 추출 완료: {len(target_chunks)} chunks -> {len(final_entities)} entities")
 
         # Save to GCS
         content_hash = profile.get("doc_content_hash", "nohash")

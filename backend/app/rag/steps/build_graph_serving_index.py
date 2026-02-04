@@ -182,6 +182,133 @@ class GraphServingIndexBuilder:
         self.aggregate_edges()
         self.build_serving_indexes()
 
+    def process_single_document(self, doc_id: str):
+        """
+        단일 문서에 대한 Graph Serving Index Incremental Update
+        해당 문서와 연결된 개념들만 업데이트
+        """
+        logger.info(f"📊 [GraphServing] Incremental update for {doc_id}")
+        
+        # 1. 해당 문서의 엣지 조회
+        edges = (self.db.collection("edges_doc_concept")
+            .where(filter=firestore.FieldFilter("doc_id", "==", doc_id))
+            .where(filter=firestore.FieldFilter("active", "==", True))
+            .stream())
+        
+        doc_concepts = []
+        affected_concept_ids = set()
+        
+        for e in edges:
+            data = e.to_dict()
+            concept_id = data.get("concept_id")
+            if not concept_id:
+                continue
+                
+            affected_concept_ids.add(concept_id)
+            
+            # 개념 메타 조회
+            concept_ref = self.db.collection("concepts").document(concept_id).get()
+            if not concept_ref.exists:
+                continue
+            concept_data = concept_ref.to_dict()
+            
+            score = data.get("rank_score", data.get("confidence", 1.0))
+            mentions = data.get("mentions_count", 1)
+            
+            doc_concepts.append({
+                "concept_id": concept_id,
+                "name": concept_data.get("canonical_name", ""),
+                "type": concept_data.get("type", "OTHERS"),
+                "score": score,
+                "mentions": mentions
+            })
+        
+        if not doc_concepts:
+            logger.warning(f"SKIP {doc_id}: No valid edges found")
+            return
+        
+        # 2. Doc-Centric Index 업데이트
+        doc_concepts.sort(key=lambda x: x["score"], reverse=True)
+        top_k = doc_concepts[:self.per_node_cap]
+        
+        doc_payload = {
+            "doc_id": doc_id,
+            "tenant_id": self.tenant_id,
+            "engagement_id": self.engagement_id,
+            "top_concepts": top_k,
+            "concept_count": len(doc_concepts),
+            "version": self.serving_version,
+            "updated_at": firestore.SERVER_TIMESTAMP
+        }
+        self.db.collection("graph_serving_docs").document(doc_id).set(doc_payload, merge=True)
+        
+        # 3. Concept-Centric Index 업데이트 (영향받은 개념들만)
+        batch = self.db.batch()
+        batch_count = 0
+        
+        for concept_id in affected_concept_ids:
+            # 해당 개념에 연결된 모든 문서 조회
+            concept_edges = (self.db.collection("edges_doc_concept")
+                .where(filter=firestore.FieldFilter("concept_id", "==", concept_id))
+                .where(filter=firestore.FieldFilter("active", "==", True))
+                .stream())
+            
+            concept_docs = []
+            for ce in concept_edges:
+                ce_data = ce.to_dict()
+                linked_doc_id = ce_data.get("doc_id")
+                if not linked_doc_id:
+                    continue
+                    
+                score = ce_data.get("rank_score", ce_data.get("confidence", 1.0))
+                mentions = ce_data.get("mentions_count", 1)
+                
+                concept_docs.append({
+                    "doc_id": linked_doc_id,
+                    "score": score,
+                    "mentions": mentions
+                })
+            
+            if not concept_docs:
+                continue
+                
+            concept_docs.sort(key=lambda x: x["score"], reverse=True)
+            top_k_docs = concept_docs[:self.per_node_cap]
+            
+            # 개념 메타 조회
+            concept_ref = self.db.collection("concepts").document(concept_id).get()
+            concept_meta = {}
+            if concept_ref.exists:
+                cd = concept_ref.to_dict()
+                concept_meta = {
+                    "name": cd.get("canonical_name", ""),
+                    "type": cd.get("type", "OTHERS")
+                }
+            
+            concept_payload = {
+                "concept_id": concept_id,
+                "tenant_id": self.tenant_id,
+                "engagement_id": self.engagement_id,
+                "top_docs": top_k_docs,
+                "doc_count": len(concept_docs),
+                "meta": concept_meta,
+                "version": self.serving_version,
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }
+            
+            batch.set(self.db.collection("graph_serving_concepts").document(concept_id), concept_payload, merge=True)
+            batch_count += 1
+            
+            if batch_count >= 400:
+                batch.commit()
+                batch = self.db.batch()
+                batch_count = 0
+        
+        if batch_count > 0:
+            batch.commit()
+        
+        logger.info(f"✅ [GraphServing] Updated serving index for {doc_id} ({len(affected_concept_ids)} concepts)")
+
 if __name__ == "__main__":
     builder = GraphServingIndexBuilder()
     builder.run()

@@ -157,7 +157,7 @@ class DocChunker:
         )
         chunks_gcs_uri = f"gs://{self.bucket_name}/{chunks_blob_path}"
         
-        # Firestore Update
+        # Firestore Update (Top-level meta)
         self.db.collection("chunks").document(doc_id).set({
             "doc_id": doc_id,
             "doc_content_hash": content_hash,

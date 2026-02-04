@@ -119,6 +119,144 @@ class ConceptBuilder:
         self.save_concept_map(concept_map_export)
         logger.info(f"Concepts Build Complete. Found {len(aggregator)} concepts.")
 
+    def process_single_document(self, doc_id: str):
+        """
+        단일 문서에 대한 Concept Incremental Update
+        해당 문서의 엔티티만 처리하여 관련 개념 업데이트
+        + Concept Map 생성/업데이트 (Edge 생성을 위해 필수)
+        """
+        logger.info(f"🧠 [Concept] Incremental update for {doc_id}")
+        
+        # 1. 해당 문서의 엔티티 조회
+        ent_ref = self.db.collection("entities").document(doc_id).get()
+        if not ent_ref.exists:
+            logger.warning(f"SKIP {doc_id}: No entities found")
+            return
+            
+        gcs_uri = ent_ref.get("gcs_entities_uri")
+        entities = self.load_entities_from_gcs(gcs_uri)
+        
+        if not entities:
+            logger.warning(f"SKIP {doc_id}: Empty entities list")
+            return
+        
+        tenant = getattr(settings, "TENANT_ID", "default")
+        engagement = getattr(settings, "ENGAGEMENT_ID", "default")
+        
+        # 2. 기존 Concept Map 로드 (병합을 위해)
+        existing_map = self._load_existing_concept_map()
+        
+        # 3. 엔티티별 개념 생성/업데이트
+        batch = self.db.batch()
+        batch_count = 0
+        processed_concepts = set()
+        new_map_entries = {}  # 이번에 추가될 Map 엔트리
+        
+        for ent in entities:
+            raw_name = ent.get("name")
+            type_ = ent.get("type", "OTHERS")
+            aliases = ent.get("aliases", [])
+            
+            if not raw_name:
+                continue
+                
+            norm_name = self.normalize_name(raw_name)
+            concept_id = self.generate_concept_id(type_, norm_name)
+            
+            if concept_id in processed_concepts:
+                continue
+            processed_concepts.add(concept_id)
+            
+            # 기존 개념 조회
+            existing_ref = self.db.collection("concepts").document(concept_id).get()
+            
+            aliases_set = {raw_name}
+            for a in aliases:
+                aliases_set.add(a)
+            
+            if existing_ref.exists:
+                # 기존 개념 업데이트 (aliases 병합, doc_frequency 증가)
+                existing_data = existing_ref.to_dict()
+                existing_aliases = set(existing_data.get("aliases", []))
+                merged_aliases = sorted(list(aliases_set | existing_aliases))
+                
+                # doc_id를 추적하기 위해 별도 필드 또는 증분 업데이트
+                concept_data = {
+                    "aliases": merged_aliases,
+                    "canonical_name": merged_aliases[0],
+                    "last_seen_at": firestore.SERVER_TIMESTAMP,
+                    "doc_frequency": firestore.Increment(1) if doc_id not in str(existing_data) else existing_data.get("doc_frequency", 1),
+                    "total_occurrence": firestore.Increment(1)
+                }
+                
+                # Map 업데이트 (기존 aliases + 새 aliases)
+                for alias in merged_aliases:
+                    norm_alias = self.normalize_name(alias)
+                    map_key = f"{type_}:{norm_alias}"
+                    new_map_entries[map_key] = concept_id
+            else:
+                # 신규 개념 생성
+                concept_data = {
+                    "concept_id": concept_id,
+                    "tenant_id": tenant,
+                    "engagement_id": engagement,
+                    "type": type_,
+                    "canonical_name": raw_name,
+                    "aliases": sorted(list(aliases_set)),
+                    "doc_frequency": 1,
+                    "total_occurrence": 1,
+                    "last_seen_at": firestore.SERVER_TIMESTAMP,
+                    "rules_version": self.rules_version,
+                    "active": True
+                }
+                
+                # Map 추가 (신규 개념의 모든 aliases)
+                for alias in sorted(list(aliases_set)):
+                    norm_alias = self.normalize_name(alias)
+                    map_key = f"{type_}:{norm_alias}"
+                    new_map_entries[map_key] = concept_id
+            
+            batch.set(self.db.collection("concepts").document(concept_id), concept_data, merge=True)
+            batch_count += 1
+            
+            if batch_count >= 400:
+                batch.commit()
+                batch = self.db.batch()
+                batch_count = 0
+        
+        if batch_count > 0:
+            batch.commit()
+        
+        # 4. Concept Map 병합 및 저장
+        merged_map = {**existing_map, **new_map_entries}
+        self.save_concept_map(merged_map)
+        
+        logger.info(f"✅ [Concept] Updated {len(processed_concepts)} concepts for {doc_id}")
+        logger.info(f"   📊 Concept Map: {len(new_map_entries)} new entries, {len(merged_map)} total")
+    
+    def _load_existing_concept_map(self) -> dict:
+        """기존 Concept Map 로드 (없으면 빈 dict 반환)"""
+        tenant = getattr(settings, "TENANT_ID", "default")
+        engagement = getattr(settings, "ENGAGEMENT_ID", "default")
+        map_id = f"{tenant}__{engagement}"
+        
+        try:
+            map_ref = self.db.collection("concept_maps").document(map_id).get()
+            if not map_ref.exists:
+                return {}
+            
+            gcs_uri = map_ref.get("gcs_uri")
+            if not gcs_uri:
+                return {}
+            
+            blob_path = gcs_uri.replace(f"gs://{self.bucket_name}/", "")
+            blob = self.bucket.blob(blob_path)
+            raw = blob.download_as_text()
+            return json.loads(raw)
+        except Exception as e:
+            logger.warning(f"Failed to load existing concept map: {e}")
+            return {}
+
     def save_concept_map(self, concept_map):
         tenant = getattr(settings, "TENANT_ID", "default")
         engagement = getattr(settings, "ENGAGEMENT_ID", "default")

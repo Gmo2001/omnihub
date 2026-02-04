@@ -1,49 +1,76 @@
 import requests
 import json
-import sys
+import time
 
-def test_rag_qa(query: str):
-    url = "http://localhost:8000/api/search/rag"
-    payload = {
-        "query": query,
-        "tenant_id": "my-tenant",
-        "engagement_id": "eng-001",
-        "top_k": 3
-    }
-    
-    print(f"🤔 질문: {query}")
-    print(f"📡 요청 보내는 중... ({url})")
-    
-    try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
+# ✅ 테스트 설정
+API_URL = "http://localhost:8000/api/search/rag"
+HEADERS = {
+    "X-User-Id": "test-user-001",
+    "X-Tenant-Id": "my-tenant",
+    "X-Engagement-Id": "eng-001",
+    "X-User-Roles": "admin"
+}
+
+# ✅ 테스트 질문 목록 (최근 업로드된 문서 기반)
+TEST_QUESTIONS = [
+    "YES FTA 컨설팅 지원금은 얼마인가요?",
+    "YES FTA 컨설팅 지원 대상 기업은 누구인가요?"
+]
+
+def run_test():
+    print("🚀 [RAG QA Test] Starting...")
+    print(f"📡 Target URL: {API_URL}")
+    print(f"🔑 Headers: {json.dumps(HEADERS, indent=2)}")
+    print("-" * 50)
+
+    for i, question in enumerate(TEST_QUESTIONS):
+        print(f"\n❓ Question {i+1}: {question}")
+        start_time = time.time()
         
-        result = response.json()
+        payload = {
+            "query": question,
+            "top_k": 5
+        }
         
-        print("\n✨ 답변:")
-        print("========================================")
-        print(result["answer"])
-        print("========================================")
-        
-        print("\n📚 참고 문서 (Evidence):")
-        for idx, ev in enumerate(result.get("evidence", [])):
-            print(f"[{idx+1}] {ev.get('title')} (Page {ev.get('page')})")
-            print(f"    Link: {ev.get('source_link')}")
-            print(f"    Snippet: {ev.get('snippet')[:100]}...")
-            print("-" * 40)
+        try:
+            response = requests.post(API_URL, json=payload, headers=HEADERS)
+            response.raise_for_status()
             
-    except requests.exceptions.HTTPError as e:
-        print(f"❌ API 오류: {e}")
-        print(response.text)
-    except Exception as e:
-        print(f"❌ 연결 실패: {e}")
+            data = response.json()
+            elapsed = time.time() - start_time
+            
+            cid = data.get("conversation_id", "N/A")
+            answer = data.get("answer", "No answer provided")
+            citations = data.get("citations", [])
+            retrieved_count = data.get("retrieved_count", 0)
+            
+            print(f"⏱️ Time: {elapsed:.2f}s | 🆔 Conv ID: {cid}")
+            print(f"💡 Answer:\n{answer}")
+            print(f"\n📚 Citations ({retrieved_count} retrieved, {len(citations)} used):")
+            
+            if retrieved_count == 0:
+                print("   ⚠️ 검색된 문서가 없습니다. (벡터 인덱싱 지연 또는 검색 설정 문제일 수 있습니다)")
+            elif not citations:
+                print("   (No citations used in answer)")
+            
+            for j, cit in enumerate(citations):
+                title = cit.get("title", "Untitled")
+                doc_id = cit.get("doc_id", "Unknown")
+                page = cit.get("page", "?")
+                link = cit.get("source_link", "")
+                snippet = cit.get("snippet", "")
+                
+                print(f"   [{j+1}] {title} (ID: {doc_id}, Page: {page})")
+                if link:
+                    print(f"       🔗 {link}")
+                
+        except requests.exceptions.HTTPError as e:
+            print(f"❌ API Error: {e}")
+            print(f"   Response: {response.text}")
+        except Exception as e:
+            print(f"❌ Connection Error: {e}")
+            
+        print("-" * 50)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python test_rag_qa.py \"질문 내용\"")
-        # Default test question
-        default_q = "가맹점 업무제휴 계약에서 갑이 을에게 제공하는 혜택은 뭐야?"
-        print(f"No question provided. Using default: '{default_q}'")
-        test_rag_qa(default_q)
-    else:
-        test_rag_qa(sys.argv[1])
+    run_test()

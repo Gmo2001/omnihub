@@ -52,7 +52,10 @@ class EdgeRanker:
 
     def process_single_document(self, doc_id: str):
         # 1. Fetch Edges
-        edges_ref = self.db.collection("edges_doc_concept").where("doc_id", "==", doc_id).where("active", "==", True).stream()
+        edges_ref = (self.db.collection("edges_doc_concept")
+            .where(filter=firestore.FieldFilter("doc_id", "==", doc_id))
+            .where(filter=firestore.FieldFilter("active", "==", True))
+            .stream())
         
         edges = []
         for e in edges_ref:
