@@ -9,7 +9,7 @@ from app.services.bq_service import stream_files_to_bigquery # Added BQ Service
 from app.services.metadata_extractor import extract_internal_metadata # Added Metadata Extractor
 from app.core.gcp_clients import get_drive_service, db # Restore db
 from googleapiclient.http import MediaIoBaseDownload # Restore class
-from app.utils.id_utils import to_internal_id # Restore util
+from app.common.id_utils import to_internal_id # Restore util
 from app.services.log_service import log_user_action # Restore log
 from app.models.log import ActionType # Restore enum
 # [RAG] Orchestrator Import

@@ -4,7 +4,7 @@ from typing import List, Any, Dict, Optional
 from pydantic import BaseModel
 from google.cloud import aiplatform
 from vertexai.language_models import TextEmbeddingModel  # Or use your preferred client
-from app.rag.firestore_repo import FirestoreRepo
+from app.services.firestore_repo import FirestoreRepo
 from app.common.schemas import Evidence
 
 # (실제 구현 시 RAGScope 모델은 rag_api.py와 공유 필요. 여기선 Dict로 처리)

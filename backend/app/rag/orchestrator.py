@@ -15,6 +15,8 @@ from app.rag.steps.edge_ranker import EdgeRanker
 from app.rag.steps.embed_chunks import ChunkEmbedder
 from app.rag.steps.upsert_vector_index import VectorIndexUpserter
 from app.rag.steps.upsert_doc_index_meta import DocIndexUpserter
+from app.services.tree_indexer_service import TreeIndexerService
+from app.core.gcp_clients import get_firestore_client
 
 # Logger
 logger = logging.getLogger("PipelineOrchestrator")
@@ -37,7 +39,10 @@ class PipelineOrchestrator:
         self.ranker = EdgeRanker()
         self.embedder = ChunkEmbedder()
         self.vector_upserter = VectorIndexUpserter()
+        self.vector_upserter = VectorIndexUpserter()
         self.meta_upserter = DocIndexUpserter()
+        self.tree_indexer = TreeIndexerService()
+        self.db = get_firestore_client()
 
     async def run_pipeline(self, file_id: str, gcs_uri: str = None, mime_type: str = None):
         """
@@ -60,7 +65,15 @@ class PipelineOrchestrator:
 
             # Step 2. Profile Build
             logger.info(f" -> Step 2: Build Profile")
+            # Step 2. Profile Build
+            logger.info(f" -> Step 2: Build Profile")
             self.profiler.process_single_document(file_id)
+
+            # Step 2.5. Update Tree Index (On-the-fly)
+            profile_snap = self.db.collection("profiles").document(file_id).get()
+            if profile_snap.exists:
+                logger.info(f" -> Step 2.5: Update Tree Index")
+                self.tree_indexer.process_single_doc(profile_snap.to_dict())
 
             # Step 3. Classification (Policy)
             logger.info(f" -> Step 3: Classify Policy")

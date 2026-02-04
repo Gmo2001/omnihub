@@ -10,7 +10,7 @@ from google.auth.transport.requests import Request
 import uuid
 from app.core.gcp_clients import get_firestore_client, get_drive_service as get_sa_drive_service
 from app.models.watch import WatchChannelSchema
-from app.utils.id_utils import to_internal_id, to_external_id
+from app.common.id_utils import to_internal_id, to_external_id
 from datetime import datetime
 import time
 

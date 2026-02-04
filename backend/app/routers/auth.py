@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
-from app.utils.id_utils import to_internal_id
+from app.common.id_utils import to_internal_id
 from authlib.integrations.starlette_client import OAuth
 from app.core.config import settings
 from app.core.gcp_clients import get_firestore_client

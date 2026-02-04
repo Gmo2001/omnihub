@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.dependencies import get_current_user
+from app.core.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.core.gcp_clients import get_firestore_client
 from typing import List, Optional

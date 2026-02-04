@@ -5,11 +5,10 @@ from app.core.gcp_clients import get_drive_service, get_firestore_client
 from app.services.drive_service import get_user_drive_service, stream_file_to_gcs
 from app.models.user import UserSchema
 from app.models.file import FileSchema
-from app.schemas.ai_request import AIAnalysisRequest
 import datetime
 from typing import Optional
 from app.core.logger import log_system_event
-from app.utils.id_utils import to_internal_id # Added import
+from app.common.id_utils import to_internal_id # Added import
 
 router = APIRouter()
 
@@ -273,32 +272,24 @@ async def process_drive_changes(channel_id: Optional[str] = None):
                     if content:
                         print(f"콘텐츠 추출 완료 ({file_obj.name}): {len(content)} 글자")
                         
-                        # 단계 3: AI Agent에게 분석 요청
+                        # 단계 3: RAG 파이프라인 실행 (Pipeline Orchestrator)
                         # [Fix] Circular Import 방지를 위해 함수 내부에서 Import
-                        from app.services.legacy.analysis_service import analyze_file_content
+                        from app.rag.orchestrator import PipelineOrchestrator
                         
                         # AI 상태 'processing'으로 업데이트
                         get_firestore_client().collection('files').document(file_id).update({"aiStatus": "processing"})
 
-                        # [Phase 3] AI Handoff Object 생성 (DTO)
-                        ai_request = AIAnalysisRequest(
-                            file_id=file_id,
-                            gcs_uri=file_obj.gcs_uri,
-                            mime_type=file_obj.mime_type,
-                            extracted_text=content if content else None,
-                            file_name=file_obj.name,
-                            full_path=file_obj.full_path,
-                            owners=file_obj.owners,
-                            last_modified_by=file_obj.last_modified_by
-                        )
-
-                        # Call Analysis Service
-                        ai_result = await analyze_file_content(ai_request)
+                        print(f"🚀 [Webhook] RAG 파이프라인 시작 (ID: {file_id})")
                         
-                        # 단계 4: 분석 결과 DB 업데이트 (이제 analyze_file_content 내부에서 ai_insights에 저장함)
-                        if ai_result:
-                            # get_firestore_client().collection('files').document(file_id).set(ai_result, merge=True)
-                            print(f"AI 분석 의뢰 완료 (ID: {file_id})")
+                        # Orchestrator 실행
+                        orchestrator = PipelineOrchestrator()
+                        await orchestrator.run_pipeline(
+                            doc_id=file_id, 
+                            gcs_uri=file_obj.gcs_uri, 
+                            mime_type=file_obj.mime_type
+                        )
+                        
+                        print(f"✅ [Webhook] RAG 파이프라인 완료 (ID: {file_id})")
 
             except Exception as e:
                 print(f"파일 처리 실패 {file_id}: {e}")
@@ -316,7 +307,7 @@ async def process_drive_changes(channel_id: Optional[str] = None):
 
 # === Admin / Setup API ===
 from pydantic import BaseModel
-from app.utils.drive_watch import start_watching_drive
+from app.common.drive_watch import start_watching_drive
 
 class WatchRequest(BaseModel):
     webhook_url: str

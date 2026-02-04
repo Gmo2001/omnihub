@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from pydantic.alias_generators import to_camel
-from app.utils.id_utils import to_internal_id
+from app.common.id_utils import to_internal_id
 from datetime import datetime
 from typing import Optional
 from enum import Enum

@@ -3,7 +3,7 @@ from app.core.logger import log_system_event # Added
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from google.cloud import firestore # Added for ArrayUnion
-from app.dependencies import get_current_user
+from app.core.dependencies import get_current_user
 from app.models.user import UserSchema
 from app.services.drive_service import stream_file_to_gcs, list_files_in_folder_recursive
 from app.rag.steps.run_docai_extract import DocAIExtractor # [Modified] Use new Extractor from run_docai_extract

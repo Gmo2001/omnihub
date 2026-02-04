@@ -55,7 +55,7 @@ async def get_tree_items(
                 "files": []
             }
             
-        from app.services.permission_guard import PermissionGuard
+        from app.services.permission_service import PermissionGuard
         
         data = doc_ref.to_dict()
         

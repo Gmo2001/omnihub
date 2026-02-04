@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Request, HTTPException
 from app.services.firestore_repo import FirestoreRepo
-from app.services.permission_guard import PermissionGuard
+from app.services.permission_service import PermissionGuard
 
 logger = logging.getLogger("CardDocsAPI")
 router = APIRouter(prefix="/api/docs", tags=["Docs"])

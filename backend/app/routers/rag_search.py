@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Request, HTTPException
-from app.rag.firestore_repo import FirestoreRepo
+from app.services.firestore_repo import FirestoreRepo
 from app.rag.retriever import Retriever
 from app.rag.generator import Generator
 

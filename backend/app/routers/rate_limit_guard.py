@@ -10,6 +10,7 @@ from google.cloud import firestore
 
 from dotenv import load_dotenv
 load_dotenv()
+from app.core.gcp_clients import get_firestore_client
 
 # --- Configurations ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
@@ -28,7 +29,6 @@ LIMIT_RULES = {
 DEFAULT_LIMIT = (120, "tenant")
 
 logger = logging.getLogger("RateLimitGuard")
-db = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DB)
 
 # --- Helper Logic ---
 def get_limit_config(path: str):

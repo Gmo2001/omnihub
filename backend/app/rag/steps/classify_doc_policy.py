@@ -92,8 +92,8 @@ class PolicyClassifier:
         # Rule File Path (backend/rules/...)
         # settings.BASE_DIR 활용 가능
         # 여기서는 상대 경로 가정 (app/services/ai_a/rules를 찾거나, 프로젝트 루트의 rules 찾기)
-        # 보통 프로젝트 루트의 rules/policy_rules.v1.json
-        self.rules_file = f"rules/policy_rules.{self.policy_version}.json"
+        # 보통 프로젝트 루트의 app/rag/rules/policy_rules.v1.json
+        self.rules_file = os.path.join("app", "rag", "rules", f"policy_rules.{self.policy_version}.json")
         self.engine = PolicyEngine(self.rules_file)
 
     def process_single_document(self, doc_id: str):

@@ -6,7 +6,7 @@ from google.cloud import storage
 from app.services.firestore_repo import FirestoreRepo
 
 from app.services.signed_url_service import SignedURLService
-from app.services.permission_guard import PermissionGuard
+from app.services.permission_service import PermissionGuard
 
 logger = logging.getLogger("DownloadAPI")
 router = APIRouter(prefix="/api/docs", tags=["Download"])

@@ -18,7 +18,7 @@ class UpdateStatusRequest(BaseModel):
     status: DocStatus
     reason: Optional[str] = None
 
-from app.services.doc_workflow_rules import DocWorkflowRules
+from app.rag.doc_workflow_rules import DocWorkflowRules
 
 @router.patch("/{doc_id}/status")
 async def update_doc_status(request: Request, doc_id: str, body: UpdateStatusRequest):

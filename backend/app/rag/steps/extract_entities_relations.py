@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import os
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.cloud import storage
@@ -29,7 +30,21 @@ class EntityExtractor:
         
         # Config (Types)
         # TODO: Load from file if exists, else default
+        # Config (Types)
+        # Load rules from text file
         self.types = ["PERSON", "ORGANIZATION", "LOCATION", "EVENT", "CONCEPT", "PRODUCT", "TECHNOLOGY"]
+        types_file = os.path.join("app", "rag", "rules", "entity_types.txt")
+        
+        if os.path.exists(types_file):
+            try:
+                with open(types_file, "r", encoding="utf-8") as f:
+                    # 빈 줄 제외하고 대문자로 변환하여 리스트 생성
+                    self.types = [line.strip() for line in f if line.strip()]
+                logger.info(f"Loaded {len(self.types)} entity types from {types_file}")
+            except Exception as e:
+                logger.warning(f"Failed to load entity types: {e}")
+        else:
+            logger.warning(f"Entity types file not found at {types_file}. Using defaults.")
         self.types_str = ", ".join(self.types)
 
     def extract(self, text: str):

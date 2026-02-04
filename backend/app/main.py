@@ -1,5 +1,8 @@
 from fastapi import FastAPI
-from app.routers import files, drive_webhook, auth, admin, ingest, rag_search
+from app.routers import (
+    files, drive_webhook, auth, admin, ingest, rag_search,
+    tree_api, graph_api, card_docs_api, docs_status_api, download_api
+)
 # from app.services.ai_a.rag.app.api.routers import rag_api # Removed in refactor
 from fastapi.responses import PlainTextResponse # 텍스트 응답용
 
@@ -27,15 +30,27 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 # 3. Custom Auth Context Middleware (Headers -> AuthContext)
 app.add_middleware(AuthContextMiddleware)
 
+# 4. Rate Limit Middleware (Traffic Control)
+from app.routers.rate_limit_guard import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
+
 
 # 라우터 등록
-app.include_router(auth.router)           # 인증 라우터 등록
+app.include_router(auth.router)             # 인증 라우터 등록
 app.include_router(drive_webhook.router)
 app.include_router(admin.router)            # Admin APIS
 app.include_router(ingest.router)           # Drive Ingestion
-app.include_router(rag_search.router)          # RAG API (Retrieval & Generation)
-# app.include_router(graph.router)          # 나중에 구현
-app.include_router(files.router)            # 지금 테스트용
+app.include_router(rag_search.router)       # RAG API (Retrieval & Generation)
+
+# RAG UI Routers
+app.include_router(tree_api.router)         # Folder Tree
+app.include_router(graph_api.router)        # Knowledge Graph
+app.include_router(card_docs_api.router)    # Doc Detail & Card
+app.include_router(docs_status_api.router)  # Approval Workflow
+app.include_router(download_api.router)     # File Download
+
+# app.include_router(graph.router)          # (Legacy or Placeholder)
+app.include_router(files.router)            # (Test/Legacy)
 
 
 #Google 웹사이트 소유권 확인용

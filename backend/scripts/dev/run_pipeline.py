@@ -5,12 +5,16 @@ import logging
 import sys
 import os
 
-# Ensure backend root is in sys.path
-sys.path.append(os.getcwd())
+# --- Path Setup ---
+# Add 'backend' root to sys.path to allow imports like 'app.rag.orchestrator'
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_root = os.path.abspath(os.path.join(current_dir, "../../"))
+if backend_root not in sys.path:
+    sys.path.append(backend_root)
 
 # [Local Run] Load .env explicitly for standalone script execution
 from dotenv import load_dotenv
-load_dotenv() # Load .env file
+load_dotenv(os.path.join(backend_root, ".env")) # Load .env from root
 
 from app.core.config import settings
 from app.rag.orchestrator import PipelineOrchestrator
@@ -21,7 +25,7 @@ logger = logging.getLogger("RAG-Runner")
 
 async def run_job(doc_id: str, gcs_uri: str = None, mime_type: str = None):
     """
-    Cloud Run Job Entry Point
+    Manual Pipeline Runner Entry Point (Dev/Emergency)
     """
     logger.info(f"🚀 [Job] Starting Pipeline Job for DocID: {doc_id}")
     
@@ -34,7 +38,7 @@ async def run_job(doc_id: str, gcs_uri: str = None, mime_type: str = None):
         sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="Omnihub RAG Pipeline Runner (Cloud Run Job)")
+    parser = argparse.ArgumentParser(description="Omnihub RAG Pipeline Runner (Manual Trigger)")
     parser.add_argument("--doc_id", type=str, required=True, help="Firestore Document ID")
     parser.add_argument("--gcs_uri", type=str, required=False, help="GCS URI for DocAI (Optional if already processed)")
     parser.add_argument("--mime_type", type=str, required=False, help="MimeType (Optional)")

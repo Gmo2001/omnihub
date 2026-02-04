@@ -4,7 +4,7 @@ __pycache__/
 .env
 .venv/
 *.json
-!app/rules/policy_rules.v1.json
+!app/rag/rules/*.json
 service_account.json
 secrets/
 _local_secrets/

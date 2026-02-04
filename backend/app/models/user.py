@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from pydantic.alias_generators import to_camel
-from app.utils.id_utils import to_internal_id
+from app.common.id_utils import to_internal_id
 from datetime import datetime
 
 # CamelCase 변환 설정을 위한 Base Model

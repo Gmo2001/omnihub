@@ -17,7 +17,7 @@ venv/
 secrets/
 service_account.json
 _local_secrets/
-_archive/
+
 *.key
 *.pem
 

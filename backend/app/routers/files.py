@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query, D
 from app.core.gcp_clients import get_firestore_client, get_drive_service
 from app.services.log_service import log_user_action
 from app.models.log import ActionType
-from app.dependencies import get_current_user
+from app.core.dependencies import get_current_user
 from app.models.user import UserSchema
 from typing import Optional
 
