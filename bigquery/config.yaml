@@ -1,0 +1,41 @@
+# config.yaml (files 로그는 무시, 사용자 행동 + 시스템 이벤트만)
+project_id: "jnu-rise-edu-150"
+
+datasets:
+  raw_audit: "omnihub_ai_b_dataset"
+  raw_system: "omnihub_ai_b_dataset"
+  clean: "omnihub_clean"
+  features: "omnihub_features"
+
+tables:
+  # ✅ 사용자 행동 로그(백엔드가 준 changelog 테이블)
+  audit_source: "audit_logs_raw_changelog"
+
+  # ✅ 시스템 이벤트 로그(날짜별 테이블이면 와일드카드 유지)
+  system_stdout_wildcard: "run_googleapis_com_stdout_*"
+
+  # clean layer (뷰 이름)
+  clean_audit_view: "clean_audit_events_v"
+  clean_system_view: "clean_system_events_v"
+
+  # features layer
+  user_5m_view: "user_downloads_5m_v"
+  dept_stats_table: "dept_stats_ndays"
+  vector_table: "user_download_vector_5m"
+
+params:
+  n_days: 7
+  download_action_type: 1
+  location: "asia-northeast3"
+  action_types:
+    view: 0
+    download: 1
+    move: 2
+    approve: 3
+    denied: 4
+    login: 5
+    logout: 6
+    delete: 7
+    trash: 8
+    create: 9
+    update: 10
