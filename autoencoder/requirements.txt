@@ -1,0 +1,8 @@
+functions-framework==3.*
+google-cloud-storage
+google-cloud-bigquery
+pandas
+numpy<2.0.0
+scikit-learn
+joblib
+tensorflow-cpu

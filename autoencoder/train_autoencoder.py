@@ -1,4 +1,5 @@
 # src/autoencoder/train_autoencoder.py
+from xml.parsers.expat import model
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
@@ -7,7 +8,7 @@ from tensorflow.keras import layers
 import json
 import joblib
 
-from .config import INPUT_DIM, LATENT_DIM, MODEL_PATH, SCALER_PATH, BASELINE_PATH
+from config import INPUT_DIM, LATENT_DIM, MODEL_PATH, SCALER_PATH, BASELINE_PATH
 
 def build_autoencoder(input_dim, latent_dim):
     encoder = keras.Sequential([
@@ -53,14 +54,10 @@ def fit_autoencoder(X: np.ndarray):
     train_recon = model.predict(X_train)
     train_err = np.mean((X_train - train_recon) ** 2, axis=1)
 
-    train_mean = float(train_err.mean())
-    train_std = float(train_err.std())
-    p95 = float(np.percentile(train_err, 95))
-
     baseline = {
-        "train_mean": train_mean,
-        "train_std": train_std,
-        "p95_threshold": p95,
+        "trainMean": float(train_err.mean()),
+        "trainStd": float(train_err.std()),
+        "p95Threshold": float(np.percentile(train_err, 95)),
     }
 
     return model, scaler, baseline
