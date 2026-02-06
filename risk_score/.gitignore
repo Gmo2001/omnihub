@@ -1,0 +1,39 @@
+# ===== Secrets / Credentials =====
+.env
+.env.*
+!.env.example
+
+# Service account keys (common names)
+service-account.json
+service_account.json
+sa.json
+key.json
+credentials.json
+
+# Any JSON key under typical folders
+**/secrets/**
+**/credentials/**
+**/*service-account*.json
+**/*service_account*.json
+**/*-sa-*.json
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# ===== OS / Editor =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
