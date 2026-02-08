@@ -10,10 +10,13 @@ from utils import json_dumps_stable, utc_stamp
 
 
 def _normalize_event_type(v: Any) -> str:
-    # eventType은 문자열로 온다고 했으니 여기서 단순 정규화만
-    if isinstance(v, str) and v.strip():
-        return v.strip().upper()
-    return "MODEL_ANOMALY"
+    # 문자열뿐 아니라 숫자형도 안전하게 문자열로 변환하여 처리
+    if v is None:
+        return "MODEL_ANOMALY"
+    s = str(v).strip().upper()
+    if not s:
+        return "MODEL_ANOMALY"
+    return s
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -71,13 +74,19 @@ def process_gcs_output_json(
         recon_error=recon_error,
         event_type=event_type,
         metadata=metadata,
+        train_mean=_safe_float(payload.get("trainMean"), 0.0),
+        train_std=_safe_float(payload.get("trainStd"), 1.0),
+        p95_threshold=_safe_float(payload.get("p95Threshold"), 0.0),
     )
 
     engine = RiskScoreEngine()
     out = engine.process_event(prev_score=prev_score, event_inputs=inputs, prev_state=prev_state)
 
     # Firestore: user 최신 상태 upsert
-    fs_payload = {
+    # Firestore: user 최신 상태 upsert (는 하지 않음, 껍데기 유지)
+    
+    # 상세 데이터 (History용 - 모든 정보 포함)
+    detail_payload = {
         "userId": user_id,
         "traceId": trace_id,
         "eventType": event_type,
@@ -87,11 +96,19 @@ def process_gcs_output_json(
         "defconMode": out["defconMode"],
         "stateChanged": bool(out["stateChanged"]),
         "metadata": metadata,
+        
+        # 모델 기준값 추가 (분석용)
+        "trainMean": _safe_float(payload.get("trainMean"), 0.0),
+        "trainStd": _safe_float(payload.get("trainStd"), 0.0),
+        "p95Threshold": _safe_float(payload.get("p95Threshold"), 0.0),
+        
         "gcs": {"bucket": bucket, "name": name, "generation": generation},
         "lastEventAt": created_at,
         "updatedAt": utc_stamp(),
     }
-    stores.upsert_user_latest(user_id, fs_payload, merge=True)
+    
+    # [NEW] 서브 컬렉션(history)에만 추가 (상위 문서는 필드 없이 껍데기로 존재)
+    stores.add_user_history(user_id, detail_payload)
 
     # BigQuery: 현재 테이블 스키마에 맞춰 이벤트 1건 append
     # (필수 REQUIRED 컬럼을 모두 채움)

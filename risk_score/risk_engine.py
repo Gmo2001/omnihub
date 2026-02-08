@@ -23,24 +23,25 @@ class RiskScoreEngine:
     """
     - eventRisk: 이번 이벤트의 위험도(0~100)
     - riskScore: 누적 위험도(0~100)
-    - defconMode: safe/watch/alert
+    - defconMode: SAFE/WATCH/ALERT
     """
 
     def process_event(self, *, prev_score: float, event_inputs: dict, prev_state: str) -> dict:
-        event_risk = clamp_int(event_inputs["eventRisk"])
+        event_risk = clamp_int(float(event_inputs.get("eventRisk", 0)))
 
         # 누적 점수: 간단 누적(필요하면 decay를 여기에 넣어도 됨)
         new_score = clamp_int(prev_score + event_risk)
 
         # 상태 결정
-        if new_score >= 70:
-            mode = "alert"
-        elif new_score >= 40:
-            mode = "watch"
+        if new_score >= 90:
+            mode = "ALERT"
+        elif new_score >= 50:
+            mode = "WATCH"
         else:
-            mode = "safe"
+            mode = "SAFE"
 
-        state_changed = (mode != (prev_state or "safe").lower())
+        state_changed = (mode != (prev_state or "SAFE").strip().upper())
+        
 
         return {
             "riskScore": new_score,

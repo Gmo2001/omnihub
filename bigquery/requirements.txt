@@ -1,6 +1,10 @@
 google-cloud-bigquery
-google-cloud-bigquery-storage
+google-cloud-storage
 pandas
-pyarrow
+numpy<2.0.0
 PyYAML
+scikit-learn
+joblib
+tensorflow
 db-dtypes
+pyarrow

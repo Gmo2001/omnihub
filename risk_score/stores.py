@@ -87,7 +87,23 @@ class Stores:
         merge=False -> 문서 교체(기존 불필요 필드 제거 목적)
         """
         ref = self.firestore.collection(self.fs_users_col).document(user_id)
+        # 만약 문서가 없으면 생성하면서 history도 넣을 수 있게 set을 사용
+        # (set은 문서가 없으면 생성, 있으면 업데이트/덮어쓰기)
         ref.set(payload, merge=merge)
+
+    def add_user_history(self, user_id: str, payload: Dict[str, Any]) -> None:
+        """
+        user_id 문서 하위의 'history' 컬렉션에 문서를 추가한다.
+        ID를 무작위가 아닌 'YYYYMMDD_HHMMSS_EventType' 형식으로 지정하여 가독성을 높인다.
+        """
+        # ID 생성: 2026-02-08T12:00:00Z -> 20260208_120000
+        ts = str(payload.get("lastEventAt", "")).replace("-", "").replace(":", "").replace("T", "_").split(".")[0].replace("Z", "")
+        evt = str(payload.get("eventType", "EVENT"))
+        doc_id = f"{ts}_{evt}"
+        
+        parent_ref = self.firestore.collection(self.fs_users_col).document(user_id)
+        # .add() 대신 .document(id).set() 사용
+        parent_ref.collection("history").document(doc_id).set(payload)
 
     # -------------------------
     # BigQuery: append row

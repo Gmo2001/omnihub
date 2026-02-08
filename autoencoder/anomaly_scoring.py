@@ -4,11 +4,7 @@ import numpy as np
 import joblib
 import pandas as pd
 from tensorflow import keras
-from .config import MODEL_PATH, SCALER_PATH, BASELINE_PATH
-
-
-WATCH_THRESHOLD = 2.0
-ALERT_THRESHOLD = 3.0
+from config import MODEL_PATH, SCALER_PATH, BASELINE_PATH
 
 def load_artifacts():
     model = keras.models.load_model(MODEL_PATH)
@@ -17,63 +13,69 @@ def load_artifacts():
         baseline = json.load(f)
     return model, scaler, baseline
 
-def compute_recon_error(model, X_scaled):
+def compute_reconError(model, X_scaled):
     X_pred = model.predict(X_scaled)
     return np.mean((X_scaled - X_pred) ** 2, axis=1)
-
-def score_batch(model, scaler, baseline, X_raw):
-    X_scaled = scaler.transform(X_raw)
-    recon_err = compute_recon_error(model, X_scaled)
-
-    mean = baseline["train_mean"]
-    std = baseline["train_std"]
-    z = (recon_err - mean) / (std + 1e-8)
-
-    level = np.where(
-        z >= ALERT_THRESHOLD, "ALERT",
-        np.where(z >= WATCH_THRESHOLD, "WATCH", "NORMAL")
-    )
-
-    return {
-        "recon_error": recon_err,
-        "z_score": z,
-        "level": level,
-    }
 
 def run(input_path: str, output_path: str):
     # 1) CSV 읽기
     df = pd.read_csv(input_path)
 
     # 2) 모델 / 스케일러 / 기준값 불러오기
-    model = keras.models.load_model(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    with open(BASELINE_PATH, "r") as f:
-        baseline = json.load(f)
-    threshold = baseline["p95"]
-
-
-    # 3) 피처 선택 (빅쿼리 CSV 기준으로 숫자 컬럼만)
-    feature_cols = [
-    "userDownloads5m",
-    "zPos",
-    ]   
+    model, scaler, baseline = load_artifacts()
     
+    # baseline.json 키 적용
+    trainMean = baseline.get("trainMean")
+    trainStd = baseline.get("trainStd")
+    p95Threshold = baseline.get("p95Threshold")
+
+    # 3) 피처 선택
+    feature_cols = ["userDownloads5m", "zPos"]
     X = df[feature_cols]
-
-    # 4) 스케일링
+    
+    # 4) 스케일링 및 재구성 오차 계산
     X_scaled = scaler.transform(X)
+    reconErrors = compute_reconError(model, X_scaled)
 
-    # 5) 재구성 오차 계산
-    X_recon = model.predict(X_scaled)
-    recon_error = ((X_scaled - X_recon) ** 2).mean(axis=1)
+    # 5) 결과 데이터 가공 (추가 로직 없이 매핑만 수행)
+    json_results = []
+    for i in range(len(df)):
+        row = df.iloc[i]
+        current_error = float(reconErrors[i])
+        
+        # eventType 판별 (우선순위 적용)
+        deny_count = row.get('denyCount5m', 0)
+        deny_ratio = row.get('denyRatio5m', 0.0)
+        downloads = row.get('userDownloads5m', 0.0)
 
-    # 6) 이상 여부 플래그
-    df["recon_error"] = recon_error
-    df["is_anomaly"] = (recon_error > threshold).astype(int)
+        if deny_count >= 1 or deny_ratio >= 0.2:
+            event_type_str = "DENY_ACCESS"
+        elif downloads >= 5:
+            event_type_str = "MASS_DOWNLOAD"
+        elif current_error >= p95Threshold:
+            event_type_str = "MODEL_ANOMALY"
+        else:
+            event_type_str = "NORMAL_ACTIVITY"
+            
+        record = {
+            "traceId": str(row.get('traceId', '')),
+            "windowStart": str(row.get('windowStart', '')),
+            "userId": str(row.get('userId', '')),
+            "eventType": event_type_str,
+            "trainMean": trainMean,
+            "trainStd": trainStd,
+            "p95Threshold": p95Threshold,
+            "reconError": current_error,
+            "metadata": {
+                "userDownloads5m": float(downloads),
+                "zPos": float(row.get('zPos', 0.0))
+            }
+        }
+        json_results.append(record)
 
-    # 7) 결과 저장
-    df.to_csv(output_path, index=False)
-
+    # 6) JSON 파일로 저장
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(json_results, f, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -1,0 +1,38 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets - 절대 이미지에 포함 금지
+.env
+.env.*
+service-account*.json
+*service-account*.json
+credentials.json
+key.json
+sa.json
+
+# Docs & Tests
+*.md
+tests/
+docs/
+
+# Local outputs
+output/
+*.log

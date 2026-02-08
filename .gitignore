@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+*.key
+*.pem
+secrets/
+**/*key.json
+**/*service_account.json
+**/*credentials.json
+
+# Local Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Google Cloud Specific
+gcloud/
+.gcloudignore
+
+# OmniHub Specific Inputs/Outputs (Large Files)
+inputs/
+outputs/
+models/*.h5
+models/*.keras
+models/*.pkl

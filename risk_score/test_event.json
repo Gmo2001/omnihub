@@ -1,0 +1,1 @@
+{"traceId": "test_manual_01", "userId": "user_test", "eventType": "MASS_DOWNLOAD", "reconError": 2.5, "trainMean": 0.5, "trainStd": 0.1, "p95Threshold": 1.0, "metadata": {"userDownloads5m": 50, "zPos": 3.0}} 
