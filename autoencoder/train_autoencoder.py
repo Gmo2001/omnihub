@@ -1,5 +1,4 @@
 # src/autoencoder/train_autoencoder.py
-
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
@@ -8,7 +7,7 @@ from tensorflow.keras import layers
 import json
 import joblib
 
-from .config import INPUT_DIM, LATENT_DIM, MODEL_PATH, SCALER_PATH, BASELINE_PATH
+from config import INPUT_DIM, LATENT_DIM, MODEL_PATH, SCALER_PATH, BASELINE_PATH
 
 def build_autoencoder(input_dim, latent_dim):
     encoder = keras.Sequential([
